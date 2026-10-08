@@ -1,0 +1,925 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Commute Coach">
+<meta name="theme-color" content="#0b6b4c">
+<style>*,*::before,*::after{box-sizing:border-box}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}</style>
+</head><body>
+<title>Commute Coach</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@500;700;800&family=IBM+Plex+Sans+KR:wght@400;500;600&family=Overpass+Mono:wght@500&display=swap">
+<style>
+/* Layout: one column app. Lesson tab = status strip + sentence card + controls; drive mode = full-screen highway sign. */
+:root {
+  --paper: #f5f7f3; --surface: #ffffff; --ink: #16201b; --muted: #59685f; --line: #d8dfd9;
+  --sign: #0b6b4c; --sign-deep: #08573e; --sign-ink: #ffffff;
+  --good: #1d7a4b; --warn: #a86a12; --bad: #b42318; --ins-bg: #dff3e7; --del-bg: #fbe3e0;
+  --f-display: 'Overpass', 'Helvetica Neue', Arial, sans-serif;
+  --f-body: 'IBM Plex Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+  --f-mono: 'Overpass Mono', ui-monospace, Menlo, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --paper: #0e1411; --surface: #151d19; --ink: #e6eee9; --muted: #98aaa0; --line: #27332d;
+  --sign: #0f7a56; --sign-deep: #0a6145; --sign-ink: #ffffff;
+  --good: #4cc38a; --warn: #e1a53e; --bad: #f2695c; --ins-bg: #173a29; --del-bg: #45201c; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --paper: #0e1411; --surface: #151d19; --ink: #e6eee9; --muted: #98aaa0; --line: #27332d;
+  --sign: #0f7a56; --sign-deep: #0a6145; --sign-ink: #ffffff;
+  --good: #4cc38a; --warn: #e1a53e; --bad: #f2695c; --ins-bg: #173a29; --del-bg: #45201c; color-scheme: dark; }
+
+html, body { height: 100%; }
+body { background: var(--paper); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.55; }
+.app { max-width: 720px; margin: 0 auto; padding-inline: 16px; padding-block: 12px 40px; display: grid; gap: 16px; }
+button { font: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--sign); outline-offset: 2px; }
+
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.shield { background: var(--sign); color: var(--sign-ink); font-family: var(--f-display); font-weight: 800; font-size: 13px; letter-spacing: .06em; padding: 4px 8px; border-radius: 6px; border: 2px solid var(--sign-ink); box-shadow: 0 0 0 1.5px var(--sign); }
+.brand h1 { font-family: var(--f-display); font-weight: 800; font-size: 20px; margin: 0; letter-spacing: -.01em; text-wrap: balance; }
+.tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+.tabs button { border: 0; background: transparent; color: var(--muted); padding: 6px 14px; border-radius: 999px; font-weight: 500; }
+.tabs button[aria-selected="true"] { background: var(--sign); color: var(--sign-ink); }
+
+.notice { font-size: 13px; color: var(--muted); border: 1px dashed var(--line); border-radius: var(--r); padding: 8px 12px; display: grid; gap: 2px; }
+.notice b { color: var(--ink); font-weight: 600; }
+
+.strip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-family: var(--f-display); }
+.phase { font-weight: 700; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.chip { font-family: var(--f-display); font-weight: 700; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; padding: 3px 10px; border-radius: 999px; border: 1.5px solid var(--line); color: var(--muted); }
+.chip[data-s="speaking"] { border-color: var(--sign); color: var(--sign); }
+.chip[data-s="listening"] { border-color: var(--good); color: var(--good); }
+.chip[data-s="listening"]::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-right: 6px; vertical-align: 1px; animation: pulse 1.2s ease-in-out infinite; }
+.chip[data-s="paused"] { border-color: var(--warn); color: var(--warn); }
+@keyframes pulse { 50% { opacity: .25; } }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: grid; gap: 10px; min-width: 0; }
+.signcard { background: var(--sign); color: var(--sign-ink); border: 0; box-shadow: inset 0 0 0 3px var(--sign), inset 0 0 0 5px var(--sign-ink); border-radius: 14px; padding: 22px 22px 20px; }
+.signcard .en { font-family: var(--f-display); font-weight: 700; font-size: clamp(22px, 5.4vw, 30px); line-height: 1.25; letter-spacing: -.005em; text-wrap: balance; }
+.signcard .en.hidden-en { opacity: .55; font-style: italic; font-weight: 500; }
+.signcard .ko { font-size: 15px; opacity: .9; }
+.signcard .tag { font-family: var(--f-mono); font-size: 12px; opacity: .8; letter-spacing: .02em; }
+
+.said { font-size: 16px; }
+.said .lbl, .teacher .lbl { font-family: var(--f-display); font-weight: 700; font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 2px; }
+.said ins { background: var(--ins-bg); color: var(--good); text-decoration: none; font-weight: 600; padding: 0 3px; border-radius: 4px; }
+.said del { background: var(--del-bg); color: var(--bad); padding: 0 3px; border-radius: 4px; }
+.verdict { font-family: var(--f-display); font-weight: 800; font-size: 12px; letter-spacing: .08em; padding: 2px 8px; border-radius: 4px; margin-left: 6px; vertical-align: 2px; }
+.verdict.pass { background: var(--ins-bg); color: var(--good); }
+.verdict.fix { background: var(--del-bg); color: var(--bad); }
+.verdict.other { border: 1px solid var(--line); color: var(--muted); }
+.teacher { font-size: 15px; }
+
+.voicehelp .lbl { font-family: var(--f-display); font-weight: 700; font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 4px; }
+.voicehelp ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.voicehelp li { border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 13px; color: var(--muted); }
+.voicehelp li b { color: var(--ink); font-family: var(--f-display); font-weight: 700; margin-right: 4px; }
+.btn { border: 1.5px solid var(--line); background: var(--surface); color: var(--ink); padding: 9px 14px; border-radius: var(--r); font-weight: 600; }
+.btn.primary { background: var(--sign); border-color: var(--sign); color: var(--sign-ink); }
+.btn.big { font-family: var(--f-display); font-weight: 800; font-size: 18px; padding: 14px 22px; letter-spacing: .02em; }
+.btn:disabled { opacity: .45; cursor: default; }
+
+.plan { display: grid; gap: 8px; }
+.plan h2, .sec h2 { font-family: var(--f-display); font-weight: 800; font-size: 15px; letter-spacing: .06em; text-transform: uppercase; margin: 0; color: var(--muted); }
+.plan ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.plan li span { color: var(--muted); font-size: 13px; }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.settings { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 14px; color: var(--muted); }
+.settings select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+
+/* Records tab */
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.metric { border: 1px solid var(--line); border-radius: var(--r); padding: 12px; background: var(--surface); display: grid; gap: 2px; align-content: start; }
+.metric .k { font-family: var(--f-display); font-weight: 700; font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.metric .v { font-family: var(--f-display); font-weight: 800; font-size: 24px; font-variant-numeric: tabular-nums; }
+.metric .v.na { font-size: 16px; color: var(--muted); font-weight: 700; }
+.metric .d { font-size: 12.5px; color: var(--muted); }
+.sec { display: grid; gap: 10px; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--f-display); font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+tr:last-child td { border-bottom: 0; }
+td.nowrap { white-space: nowrap; }
+td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pill { font-family: var(--f-display); font-weight: 700; font-size: 11.5px; letter-spacing: .06em; padding: 2px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid var(--line); color: var(--muted); }
+.pill.learning { border-color: var(--warn); color: var(--warn); }
+.pill.review { border-color: var(--sign); color: var(--sign); }
+.pill.mastered { background: var(--sign); border-color: var(--sign); color: var(--sign-ink); }
+.empty { color: var(--muted); font-size: 14px; }
+
+/* Drive mode: the whole screen is one highway sign, no sentence text. */
+.drive { position: fixed; inset: 0; background: var(--sign); color: var(--sign-ink); display: grid; grid-template-rows: auto 1fr auto; padding: calc(env(safe-area-inset-top, 0px) + 20px) 20px calc(env(safe-area-inset-bottom, 0px) + 24px); z-index: 10; }
+.drive .frame { position: absolute; inset: calc(env(safe-area-inset-top, 0px) + 8px) 8px calc(env(safe-area-inset-bottom, 0px) + 8px); border: 4px solid var(--sign-ink); border-radius: 22px; pointer-events: none; }
+.drive .dtop { display: flex; justify-content: space-between; align-items: center; font-family: var(--f-display); font-weight: 800; letter-spacing: .12em; font-size: 14px; padding: 8px 10px 0; }
+.drive .dmid { display: grid; place-items: center; text-align: center; gap: 18px; }
+.drive .dstate { font-family: var(--f-display); font-weight: 800; font-size: clamp(40px, 13vw, 76px); letter-spacing: .04em; line-height: 1; }
+.drive .dphase { font-family: var(--f-display); font-weight: 700; font-size: 18px; letter-spacing: .14em; opacity: .9; }
+.drive .dbtn { width: min(64vw, 260px); aspect-ratio: 1; border-radius: 50%; border: 5px solid var(--sign-ink); background: var(--sign-deep); color: var(--sign-ink); font-family: var(--f-display); font-weight: 800; font-size: 28px; letter-spacing: .08em; }
+.drive .dbot { display: flex; justify-content: space-between; gap: 12px; padding: 0 10px 6px; }
+.drive .dbot button { background: transparent; color: var(--sign-ink); border: 2px solid var(--sign-ink); border-radius: 10px; padding: 10px 16px; font-family: var(--f-display); font-weight: 700; letter-spacing: .06em; }
+@media (prefers-reduced-motion: reduce) { .chip[data-s="listening"]::before { animation: none; } }
+</style>
+
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand"><span class="shield">I-6</span><h1>Commute Coach</h1></div>
+    <div class="tabs" role="tablist">
+      <button role="tab" id="tab-lesson" aria-selected="true">수업</button>
+      <button role="tab" id="tab-records" aria-selected="false">기록</button>
+    </div>
+  </header>
+
+  <div class="notice" id="env"></div>
+
+  <section id="view-lesson" class="sec">
+    <div class="strip"><span class="phase" id="phase">오늘의 출근길 수업</span><span class="chip" id="state" data-s="idle">Ready</span></div>
+
+    <div class="signcard" id="sentence">
+      <div class="tag" id="s-tag">MODULE 1 · MORNING COMMUTE</div>
+      <div class="en" id="s-en">I'm heading to work.</div>
+      <div class="ko" id="s-ko">나 지금 출근하는 중이야.</div>
+    </div>
+
+    <div class="card">
+      <div class="said" id="said"><span class="lbl">내가 말한 문장</span><span id="said-text" class="empty">아직 없음</span></div>
+      <div class="teacher"><span class="lbl">선생님</span><span id="teacher">시작하면 지난 기록을 불러와 한 문장씩 진행합니다. 그 뒤로는 모두 말로 답합니다.</span></div>
+      <div class="voicehelp" id="voicehelp">
+        <span class="lbl">음성 명령</span>
+        <ul>
+          <li><b>again</b> 다시</li><li><b>slower</b> 천천히</li><li><b>meaning</b> 뜻</li><li><b>skip</b> 넘어가</li>
+          <li><b>pause</b> 잠깐</li><li><b>resume</b> 계속</li><li><b>stop</b> 그만</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card plan" id="plan"></div>
+
+    <div class="row">
+      <button class="btn primary big" id="start" type="button">수업 시작</button>
+      <button class="btn big" id="drive-start" type="button">운전 모드로 시작</button>
+    </div>
+    <div class="settings">
+      <label>말하기 속도
+        <select id="speed"><option value="0">느림</option><option value="1">보통</option><option value="2">자연</option></select>
+      </label>
+    </div>
+  </section>
+
+  <section id="view-records" class="sec" hidden></section>
+</div>
+
+<div class="drive" id="drive" hidden>
+  <div class="frame"></div>
+  <div class="dtop"><span>COMMUTE COACH</span><span id="d-step"></span></div>
+  <div class="dmid">
+    <div class="dphase" id="d-phase">READY</div>
+    <div class="dstate" id="d-state">TAP TO START</div>
+    <button class="dbtn" id="d-btn" type="button">START</button>
+  </div>
+  <div class="dbot" id="d-bot"><button id="d-exit" type="button">일반 화면</button></div>
+</div>
+
+<script>
+// Commute Coach core: content, answer judging, review scheduling.
+// Pure functions only (no DOM), so it runs in the browser and in Node tests.
+(function (root) {
+  'use strict';
+
+  // ---------- Content (원본 3장: Module 1 핵심 6문장 + 확장 6문장) ----------
+  const SENTENCES = [
+    { id: 'c1', type: 'core', order: 1, en: "I'm heading to work.", ko: '나 지금 출근하는 중이야.', grammar: '현재진행 · heading to', variants: [] },
+    { id: 'c2', type: 'core', order: 2, en: 'It takes about twenty minutes by car.', ko: '차로 20분 정도 걸려.', grammar: '이동 시간 · by car', variants: [] },
+    { id: 'c3', type: 'core', order: 3, en: "Traffic's a little heavy, but it's okay.", ko: '차가 좀 막히는데 괜찮아.', grammar: '교통 상황 · but · 축약형', variants: [] },
+    { id: 'c4', type: 'core', order: 4, en: 'And then I grab a coffee before I start the day.', ko: '그리고 하루를 시작하기 전에 커피 한 잔 사.', grammar: '관사 a · before · 행동 순서', variants: ['I grab a coffee before I start the day.', 'Then I grab a coffee before I start the day.'] },
+    { id: 'c5', type: 'core', order: 5, en: 'I open my inbox and check my email.', ko: '받은편지함을 열고 이메일을 확인해.', grammar: '이메일 업무 · and', variants: [] },
+    { id: 'c6', type: 'core', order: 6, en: "If something's urgent, I reply.", ko: '급한 게 있으면 답장해.', grammar: '조건문 if · urgent · reply', variants: ["If anything's urgent, I reply."] },
+    { id: 'e1', type: 'ext', parent: 'c5', en: 'When I get to the office, I check my emails.', ko: '사무실에 도착하면 이메일을 확인해.', grammar: 'when 절', cue: 'What do you do when you get to the office?', variants: [] },
+    { id: 'e2', type: 'ext', parent: 'c5', en: 'After I check my email, I message my team about priorities.', ko: '이메일을 확인한 뒤 팀에 우선순위를 메시지로 보내.', grammar: 'after 절 · message', cue: 'And after you check your email?', variants: [] },
+    { id: 'e3', type: 'ext', parent: 'c4', en: 'I head to work, grab a coffee, and check my email.', ko: '출근해서 커피 사고 이메일 확인해.', grammar: '동작 나열', cue: 'Sum up your morning in one sentence.', variants: [] },
+    { id: 'e4', type: 'ext', parent: 'c1', en: "I'm heading home.", ko: '집에 가는 중이야.', grammar: 'heading 변형', cue: "Work is over. You're driving back. Where are you going?", variants: [] },
+    { id: 'e5', type: 'ext', parent: 'c1', en: "I'm heading to the gym.", ko: '헬스장 가는 중이야.', grammar: 'heading 변형', cue: "You're going to work out. Tell me.", variants: [] },
+    { id: 'e6', type: 'ext', parent: 'c1', en: "I'm heading into a meeting.", ko: '회의 들어가는 중이야.', grammar: 'heading into', cue: "You're walking into a meeting. Tell me.", variants: [] },
+  ];
+
+  // ---------- Normalization ----------
+  const NUM = { '20': 'twenty', '6': 'six', '1': 'one', '2': 'two', '3': 'three' };
+  const EQUIV = { ok: 'okay', emails: 'email', mins: 'minutes', gonna: 'going to' };
+
+  function norm(s) {
+    let t = String(s || '').toLowerCase().replace(/[’‘`´]/g, "'");
+    t = t.replace(/\bcan't\b/g, 'can not').replace(/\bwon't\b/g, 'will not')
+      .replace(/n't\b/g, ' not').replace(/'m\b/g, ' am').replace(/'re\b/g, ' are')
+      .replace(/'ll\b/g, ' will').replace(/'ve\b/g, ' have').replace(/'d\b/g, ' would')
+      .replace(/\b(\w+)'s\b/g, '$1 is');
+    t = t.replace(/[^a-z0-9\s]/g, ' ');
+    return t.split(/\s+/).filter(Boolean)
+      .map(w => NUM[w] || EQUIV[w] || w).join(' ').split(' ').filter(Boolean);
+  }
+
+  const hasHangul = s => /[ㄱ-ㆎ가-힣]/.test(String(s || ''));
+
+  // Word-level edit distance with the list of edits.
+  function align(want, got) {
+    const n = want.length, m = got.length;
+    const d = Array.from({ length: n + 1 }, (_, i) => Array.from({ length: m + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)));
+    for (let i = 1; i <= n; i++) for (let j = 1; j <= m; j++) {
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (want[i - 1] === got[j - 1] ? 0 : 1));
+    }
+    const ops = [];
+    let i = n, j = m;
+    while (i > 0 || j > 0) {
+      if (i > 0 && j > 0 && want[i - 1] === got[j - 1] && d[i][j] === d[i - 1][j - 1]) { ops.unshift({ type: 'ok', want: want[i - 1], got: got[j - 1] }); i--; j--; }
+      else if (i > 0 && j > 0 && d[i][j] === d[i - 1][j - 1] + 1) { ops.unshift({ type: 'sub', want: want[i - 1], got: got[j - 1] }); i--; j--; }
+      else if (i > 0 && d[i][j] === d[i - 1][j] + 1) { ops.unshift({ type: 'miss', want: want[i - 1] }); i--; }
+      else { ops.unshift({ type: 'extra', got: got[j - 1] }); j--; }
+    }
+    return { dist: d[n][m], ops };
+  }
+
+  const ARTICLES = new Set(['a', 'an', 'the']);
+  const PREPS = new Set(['to', 'into', 'by', 'about', 'at', 'in', 'on', 'for', 'with', 'from']);
+  const CONNECTORS = new Set(['and', 'but', 'before', 'after', 'if', 'when', 'then', 'so']);
+
+  function classify(op, ops) {
+    const w = op.want || op.got;
+    if (op.type !== 'sub') {
+      const other = ops.find(o => o !== op && o.type !== 'ok' && o.type !== 'sub' && o.type !== op.type && (o.want || o.got) === w);
+      if (other) return 'word_order';
+    }
+    const words = [op.want, op.got].filter(Boolean);
+    if (words.some(x => ARTICLES.has(x))) return 'article';
+    if (words.some(x => PREPS.has(x))) return 'preposition';
+    if (words.some(x => CONNECTORS.has(x))) return 'connector';
+    if (op.type === 'sub' && op.want.slice(0, 4) === op.got.slice(0, 4)) return 'form';
+    if (op.type === 'miss' && (op.want === 'am' || op.want === 'is' || op.want === 'are')) return 'contraction';
+    return 'word';
+  }
+
+  const PRIORITY = { connector: 0, article: 1, preposition: 2, form: 3, word_order: 4, contraction: 5, word: 6 };
+
+  function hintFor(e) {
+    if (e.type === 'miss') return `Add "${e.want}".`;
+    if (e.type === 'extra') return `Drop "${e.got}".`;
+    return `Say "${e.want}", not "${e.got}".`;
+  }
+
+  // Judge a learner utterance against a sentence.
+  // Returns {verdict: 'pass'|'fix'|'korean'|'empty', target, errors[], hint, far}
+  function judge(sentence, text, learned) {
+    if (!text || !String(text).trim()) return { verdict: 'empty' };
+    if (hasHangul(text)) return { verdict: 'korean', target: sentence.en };
+    const got = norm(text);
+    const candidates = [sentence.en, ...(sentence.variants || []), ...((learned && learned[sentence.id]) || [])];
+    let best = null;
+    for (const c of candidates) {
+      const a = align(norm(c), got);
+      if (!best || a.dist < best.dist) best = { ...a, text: c, len: norm(c).length };
+    }
+    if (best.dist === 0) return { verdict: 'pass', target: best.text, errors: [] };
+    const edits = best.ops.filter(o => o.type !== 'ok').map(o => ({ ...o, kind: classify(o, best.ops) }));
+    edits.sort((x, y) => PRIORITY[x.kind] - PRIORITY[y.kind]);
+    const far = best.dist / best.len > 0.6;
+    const top = edits.slice(0, 2);
+    return {
+      verdict: 'fix', target: sentence.en, errors: edits, far,
+      hint: far ? '' : top.map(hintFor).join(' '),
+      ops: best.ops,
+    };
+  }
+
+  // Story (연결 말하기): how many targets appear in order in one long answer.
+  function storyMatch(targets, text) {
+    const got = norm(text);
+    let cursor = 0;
+    return targets.map(t => {
+      const want = norm(t.en);
+      const slice = got.slice(cursor);
+      // LCS between want and slice, tracking the last matched index.
+      const n = want.length, m = slice.length;
+      const L = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+      for (let i = 1; i <= n; i++) for (let j = 1; j <= m; j++) {
+        L[i][j] = want[i - 1] === slice[j - 1] ? L[i - 1][j - 1] + 1 : Math.max(L[i - 1][j], L[i][j - 1]);
+      }
+      const score = n ? L[n][m] / n : 0;
+      const found = score >= 0.8;
+      if (found) {
+        let i = n, j = m, last = -1;
+        while (i > 0 && j > 0) {
+          if (want[i - 1] === slice[j - 1]) { if (last < 0) last = j - 1; i--; j--; }
+          else if (L[i - 1][j] >= L[i][j - 1]) i--; else j--;
+        }
+        cursor += last + 1;
+      }
+      return { id: t.id, found, score };
+    });
+  }
+
+  // ---------- Commands (운전 모드 음성 명령) ----------
+  function parseCommand(text) {
+    const raw = String(text || '').trim().toLowerCase();
+    if (!raw) return null;
+    if (raw.split(/\s+/).length > 4) return null;
+    const t = raw.replace(/[.!?,]/g, '');
+    if (/^(again|repeat|one more time|say it again)$|다시/.test(t)) return 'again';
+    if (/^(slower|slow down|more slowly)$|천천히/.test(t)) return 'slower';
+    if (/^(skip|next|skip it)$|넘어가|다음/.test(t)) return 'skip';
+    if (/^(pause|wait|hold on)$|잠깐|멈춰/.test(t)) return 'pause';
+    if (/^(resume|continue|go on|ready|i'm ready)$|계속|다시 시작/.test(t)) return 'resume';
+    if (/^(what does it mean|meaning|what's that mean)$|무슨 뜻|뜻이 뭐/.test(t)) return 'meaning';
+    if (/^(stop|end|finish|that's it)$|그만|끝/.test(t)) return 'stop';
+    return null;
+  }
+
+  // ---------- Dates ----------
+  function today(now) {
+    const d = now ? new Date(now) : new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  function addDays(day, n) {
+    const [y, m, d] = day.split('-').map(Number);
+    const x = new Date(y, m - 1, d + n);
+    return today(x);
+  }
+
+  // ---------- Review scheduling (원본 9장 제안 간격: 1 → 3 → 7 → 14일) ----------
+  const INTERVALS = [1, 3, 7, 14];
+
+  function newState() {
+    return { level: 'new', step: -1, next: null, lastPracticed: null, failStreak: 0, contexts: [], split: false };
+  }
+
+  // kind: 'learn' (오늘의 문장), 'review' (워밍업 복습), 'recheck' (마무리 재확인), 'story' (연결 말하기), 'transfer' (변형 질문)
+  function updateState(prev, kind, result, day) {
+    const st = { ...newState(), ...prev, contexts: [...((prev && prev.contexts) || [])] };
+    st.lastPracticed = day;
+    const clean = result.passed && result.firstTry && !result.hinted;
+    if (result.passed) {
+      st.failStreak = 0;
+      const ctx = kind === 'story' ? 'story' : kind === 'transfer' ? 'transfer' : 'drill';
+      if (!st.contexts.includes(ctx)) st.contexts.push(ctx);
+    } else if (!result.skipped) {
+      st.failStreak += 1;
+      if (st.failStreak >= 3) st.split = true;
+    }
+
+    if (kind === 'learn') {
+      if (st.level === 'new') st.level = 'learning';
+      if (!result.passed) st.next = day;
+      return st;
+    }
+    if (kind === 'recheck') {
+      if (result.passed && st.level === 'learning') { st.level = 'review'; st.step = 0; st.next = addDays(day, INTERVALS[0]); st.split = false; }
+      else if (!result.passed) st.next = day;
+      return st;
+    }
+    if (kind === 'review') {
+      if (clean && (st.level === 'review' || st.level === 'mastered')) {
+        st.step = Math.min(st.step + 1, INTERVALS.length);
+        if (st.step >= INTERVALS.length && st.contexts.length >= 2) { st.level = 'mastered'; st.next = addDays(day, 30); }
+        else st.next = addDays(day, INTERVALS[Math.min(st.step, INTERVALS.length - 1)]);
+      } else if (clean && st.level === 'learning') {
+        st.level = 'review'; st.step = 0; st.next = addDays(day, INTERVALS[0]);
+      } else if (!result.skipped && !clean) {
+        st.level = 'learning'; st.step = -1; st.next = day;
+      }
+      return st;
+    }
+    return st; // story / transfer only add contexts
+  }
+
+  // ---------- Session plan ----------
+  function planSession(states, day, opts) {
+    const o = { maxReview: 4, ...opts };
+    const st = id => states[id] || newState();
+    const due = SENTENCES.filter(s => {
+      const x = st(s.id);
+      return x.level !== 'new' && x.next && x.next <= day;
+    }).sort((a, b) => (st(a.id).next < st(b.id).next ? -1 : st(a.id).next > st(b.id).next ? 1 : 0));
+    const review = due.slice(0, o.maxReview);
+    const learning = SENTENCES.filter(s => st(s.id).level === 'learning').length;
+    let fresh = null;
+    if (learning < 3) {
+      const cores = SENTENCES.filter(s => s.type === 'core').sort((a, b) => a.order - b.order);
+      fresh = cores.find(s => st(s.id).level === 'new') || null;
+      if (!fresh) fresh = SENTENCES.find(s => s.type === 'ext' && st(s.id).level === 'new' && st(s.parent).level !== 'new') || null;
+    }
+    // 연결 말하기: 이야기 순서대로 앞에서부터 복습 단계 이상인 핵심 문장
+    const cores = SENTENCES.filter(s => s.type === 'core').sort((a, b) => a.order - b.order);
+    let k = 0;
+    while (k < cores.length && ['review', 'mastered'].includes(st(cores[k].id).level)) k++;
+    const storyLen = k >= 6 ? 6 : k >= 3 ? 3 : k >= 2 ? 2 : 0;
+    return { review, fresh, story: cores.slice(0, storyLen) };
+  }
+
+  const api = { SENTENCES, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.CoachCore = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+</script>
+<script>
+(function () {
+  'use strict';
+  const C = window.CoachCore;
+  const $ = id => document.getElementById(id);
+  const byId = Object.fromEntries(C.SENTENCES.map(s => [s.id, s]));
+
+  // ---------- Storage (기기 내 저장) ----------
+  const KEY = 'commute-coach.v1';
+  function blank() { return { states: {}, attempts: [], sessions: [], learned: {}, errors: {}, settings: { speed: 1 } }; }
+  let data = blank();
+  try { const raw = localStorage.getItem(KEY); if (raw) data = { ...blank(), ...JSON.parse(raw) }; } catch (e) { /* storage unavailable */ }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { /* ignore */ } }
+  const stateOf = id => data.states[id] || C.newState();
+
+  // ---------- Environment ----------
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const synth = window.speechSynthesis || null;
+  // The claude.ai artifact frame never grants the microphone.
+  let srBlocked = !SR || !!(window.claude && window.claude.use);
+  const voiceOK = () => !srBlocked;
+
+  function renderEnv() {
+    const env = $('env');
+    env.textContent = '';
+    const line = (b, t) => { const d = document.createElement('div'); const s = document.createElement('b'); s.textContent = b; d.append(s, ' ' + t); env.append(d); };
+    if (voiceOK()) line('음성 전용 수업.', '시작한 뒤에는 답과 명령을 모두 말로 합니다. 처음 시작할 때 마이크 권한을 허용하세요.');
+    else line('이 화면에서는 음성 인식을 쓸 수 없어 수업을 시작할 수 없습니다.', 'iPhone Safari로 HTTPS 주소를 열어 주세요. 기록 탭은 볼 수 있습니다.');
+    if (!ctl.running) { $('start').disabled = !voiceOK(); $('drive-start').disabled = !voiceOK(); }
+  }
+
+  // ---------- Speech out ----------
+  const RATES = [0.72, 0.86, 1.0];
+  let voices = [];
+  function loadVoices() { if (synth) voices = synth.getVoices() || []; }
+  loadVoices();
+  if (synth && 'onvoiceschanged' in synth) synth.onvoiceschanged = loadVoices;
+  function pickVoice(lang) {
+    const list = voices.filter(v => (v.lang || '').replace('_', '-').startsWith(lang));
+    const pref = lang === 'en-US' ? /Samantha|Ava|Allison|Nicky|Google US English|Aria|Jenny/i : /Yuna|Google 한국|Sora|Heami/i;
+    return list.find(v => pref.test(v.name)) || list[0] || null;
+  }
+  function say(text, opt) {
+    const o = { lang: 'en-US', slow: false, ...opt };
+    setStatus('speaking');
+    if (o.lang === 'en-US') $('teacher').textContent = text;
+    return new Promise(res => {
+      if (!synth || ctl.stop) return setTimeout(res, ctl.stop ? 0 : 250);
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = o.lang;
+      const v = pickVoice(o.lang); if (v) u.voice = v;
+      u.rate = o.lang === 'en-US' ? RATES[data.settings.speed] * (o.slow ? 0.92 : 1) : 1;
+      let done = false;
+      const fin = () => { if (!done) { done = true; clearTimeout(guard); res(); } };
+      const guard = setTimeout(fin, 2500 + text.length * 110); // iOS sometimes drops onend
+      u.onend = fin; u.onerror = fin;
+      synth.speak(u);
+    });
+  }
+  const sayKo = t => say(t, { lang: 'ko-KR' });
+
+  // ---------- Speech in ----------
+  function hear(opt) {
+    const o = { timeout: 8000, long: false, ...opt };
+    return new Promise(resolve => {
+      let done = false, rec = null, timer = null, silence = null, finals = '';
+      const t0 = performance.now(); let spokeAt = null;
+      setStatus('listening');
+      function finish(v) {
+        if (done) return; done = true;
+        clearTimeout(timer); clearTimeout(silence);
+        if (rec) { try { rec.onend = null; rec.abort(); } catch (e) { /* ignore */ } }
+        resolve(v);
+      }
+      const micLost = () => { srBlocked = true; ctl.stop = true; ctl.reason = 'mic'; renderEnv(); finish(null); };
+      if (!voiceOK()) return micLost();
+      {
+        try {
+          rec = new SR();
+          rec.lang = 'en-US'; rec.interimResults = o.long; rec.continuous = o.long; rec.maxAlternatives = 1;
+          rec.onspeechstart = () => { if (!spokeAt) spokeAt = performance.now(); clearTimeout(timer); };
+          rec.onresult = e => {
+            if (!spokeAt) spokeAt = performance.now();
+            clearTimeout(timer);
+            if (!o.long) {
+              const r = e.results[0][0];
+              return finish({ text: r.transcript, conf: r.confidence || null, latency: Math.round(spokeAt - t0), via: 'voice' });
+            }
+            finals = ''; let interim = '';
+            for (let i = 0; i < e.results.length; i++) { if (e.results[i].isFinal) finals += e.results[i][0].transcript + ' '; else interim += e.results[i][0].transcript; }
+            $('said-text').textContent = (finals + interim).trim();
+            clearTimeout(silence);
+            silence = setTimeout(() => finish({ text: (finals + interim).trim(), conf: null, latency: Math.round(spokeAt - t0), via: 'voice' }), 2600);
+          };
+          rec.onerror = e => {
+            if (e.error === 'not-allowed' || e.error === 'service-not-allowed') return micLost();
+            if (!(o.long && finals.trim())) finish(null);
+          };
+          rec.onend = () => {
+            if (o.long && finals.trim()) return finish({ text: finals.trim(), conf: null, latency: spokeAt ? Math.round(spokeAt - t0) : null, via: 'voice' });
+            finish(null);
+          };
+          rec.start();
+          timer = setTimeout(() => { if (!spokeAt) finish(null); }, o.timeout);
+        } catch (e) { micLost(); }
+      }
+    });
+  }
+
+  // ---------- Session control ----------
+  class Stop extends Error {}
+  const ctl = { running: false, stop: false, paused: false, reason: null };
+  let driveOn = false, wakeLock = null;
+
+  async function checkpoint() { if (ctl.stop) throw new Stop(); }
+
+  async function pauseFlow() {
+    ctl.paused = true; setStatus('paused');
+    await say('Paused. Say "resume" when you are ready.');
+    while (ctl.paused && !ctl.stop) {
+      const r = await hear({ timeout: 15000 });
+      const c = r && C.parseCommand(r.text);
+      if (c === 'resume') ctl.paused = false;
+      if (c === 'stop') ctl.stop = true;
+    }
+    ctl.paused = false;
+    await checkpoint();
+    await say("Okay, let's continue.");
+  }
+
+  function setStatus(s) {
+    const map = { idle: 'Ready', speaking: 'Speaking', listening: 'Listening', paused: 'Paused' };
+    $('state').dataset.s = s; $('state').textContent = map[s] || s;
+    $('d-state').textContent = { idle: 'HANDS-FREE', speaking: 'LISTEN', listening: 'YOUR TURN', paused: 'PAUSED' }[s] || '';
+  }
+  function setPhase(label, en, i, n) {
+    $('phase').textContent = n ? `${label} ${i}/${n}` : label;
+    $('d-phase').textContent = n ? `${en} ${i}/${n}` : en;
+  }
+  function showSentence(s, mode) {
+    $('s-tag').textContent = `${s.type === 'core' ? 'CORE ' + s.order : 'EXTENSION'} · ${s.grammar}`;
+    const en = $('s-en');
+    if (mode === 'recall') { en.textContent = '영어로 말해 보세요'; en.classList.add('hidden-en'); }
+    else if (mode === 'cue') { en.textContent = s.cue; en.classList.add('hidden-en'); }
+    else { en.textContent = s.en; en.classList.remove('hidden-en'); }
+    $('s-ko').textContent = mode === 'cue' ? '' : s.ko;
+  }
+  function revealSentence(s) { $('s-en').textContent = s.en; $('s-en').classList.remove('hidden-en'); $('s-ko').textContent = s.ko; }
+
+  function showSaid(text, j) {
+    const box = $('said-text');
+    box.textContent = ''; box.classList.remove('empty');
+    if (j && j.ops && j.verdict === 'fix') {
+      j.ops.forEach((op, i) => {
+        if (i) box.append(' ');
+        if (op.type === 'ok') box.append(op.got);
+        else if (op.type === 'miss') { const x = document.createElement('ins'); x.textContent = op.want; box.append(x); }
+        else if (op.type === 'extra') { const x = document.createElement('del'); x.textContent = op.got; box.append(x); }
+        else { const d = document.createElement('del'); d.textContent = op.got; const x = document.createElement('ins'); x.textContent = op.want; box.append(d, ' ', x); }
+      });
+    } else box.append(text);
+    if (j) {
+      const v = document.createElement('span');
+      const label = { pass: 'PASS', fix: 'FIX', korean: 'KOREAN', empty: '—' }[j.verdict] || j.verdict.toUpperCase();
+      v.className = 'verdict ' + (j.verdict === 'pass' ? 'pass' : j.verdict === 'fix' ? 'fix' : 'other');
+      v.textContent = j.tip ? 'PASS + TIP' : label;
+      box.append(v);
+    }
+  }
+
+  // ---------- Judging ----------
+  const judgeSmart = async (s, text) => C.judge(s, text, data.learned);
+
+  function logAttempt(s, kind, mode, r, j) {
+    data.attempts.push({ t: new Date().toISOString(), day: C.today(), sid: s.id, kind, mode, text: r.text, via: r.via, latency: r.latency, conf: r.conf, verdict: j.verdict, errors: (j.errors || []).map(e => e.kind), judge: j.via || 'rules' });
+    if (data.attempts.length > 800) data.attempts = data.attempts.slice(-800);
+    if (j.verdict === 'fix') for (const e of j.errors || []) {
+      const x = data.errors[e.kind] || { count: 0, last: null, example: '' };
+      x.count += 1; x.last = C.today(); x.example = `${r.text} → ${s.en}`;
+      data.errors[e.kind] = x;
+    }
+    save();
+  }
+
+  const PRAISE = ['Nice.', 'Good.', 'Perfect.', 'Great.', "That's it."];
+  const praise = () => PRAISE[Math.floor(Math.random() * PRAISE.length)];
+  const firstWords = (t, n) => t.split(' ').slice(0, n).join(' ');
+
+  // One sentence drill: present → hear → judge → correct → say again.
+  async function drill(s, mode, kind) {
+    showSentence(s, mode);
+    const max = mode === 'repeat' ? 3 : 2;
+    let tries = 0, silent = 0, hinted = false, firstTry = true;
+    const present = async (intro) => {
+      if (mode === 'repeat') { if (intro) await say('Listen and repeat.'); await say(s.en, { slow: true }); }
+      else if (mode === 'recall') { await sayKo(s.ko); await say('In English?'); }
+      else await say(s.cue);
+    };
+    await present(true);
+    for (;;) {
+      await checkpoint();
+      const r = await hear();
+      await checkpoint();
+      if (!r || !r.text) {
+        silent++;
+        if (silent === 1) {
+          if (mode === 'repeat') { await say('Your turn.'); await say(s.en, { slow: true }); }
+          else { hinted = true; await say(`Here's a start: ${firstWords(s.en, 2)}...`); }
+          continue;
+        }
+        await pauseFlow(); silent = 0; await present(false); continue;
+      }
+      silent = 0;
+      const cmd = C.parseCommand(r.text);
+      if (cmd) {
+        if (cmd === 'stop') throw new Stop();
+        if (cmd === 'skip') { await say('Okay, skipping.'); return { passed: false, skipped: true, firstTry: false, hinted }; }
+        if (cmd === 'pause') { await pauseFlow(); await present(false); }
+        if (cmd === 'again') await present(false);
+        if (cmd === 'slower') { data.settings.speed = Math.max(0, data.settings.speed - 1); $('speed').value = data.settings.speed; save(); await present(false); }
+        if (cmd === 'meaning') { hinted = hinted || mode !== 'repeat'; await sayKo(s.ko); }
+        continue;
+      }
+      const j = await judgeSmart(s, r.text);
+      logAttempt(s, kind, mode, r, j);
+      showSaid(r.text, j);
+      if (j.verdict === 'korean') {
+        hinted = true; revealSentence(s);
+        await say('In English:'); await say(s.en, { slow: true }); await say('Say it with me.');
+        continue;
+      }
+      if (j.verdict === 'pass') {
+        revealSentence(s);
+        await say(j.tip ? `Good. ${j.tip}` : praise());
+        return { passed: true, firstTry, hinted, attempts: tries + 1 };
+      }
+      firstTry = false; tries++;
+      revealSentence(s);
+      if (tries >= max) {
+        await say("Let's listen once more."); await say(s.en, { slow: true });
+        if (stateOf(s.id).split || s.en.split(' ').length > 6) await splitPractice(s);
+        return { passed: false, firstTry: false, hinted, attempts: tries };
+      }
+      if (j.far) await say('Listen again.'); else await say(`Almost. ${j.hint}`);
+      await say(s.en, { slow: true });
+      await say('Say it again.');
+    }
+  }
+
+  // 반복 실패: 문장을 2~3 조각으로 나눠 연습
+  async function splitPractice(s) {
+    const parts = s.en.replace(/, /g, ',| ').replace(/ (before|and|but|after) /g, '| $1 ').split('|').map(x => x.trim()).filter(Boolean);
+    if (parts.length < 2) return;
+    await say("Let's break it down.");
+    for (const p of parts) {
+      await checkpoint();
+      await say(p, { slow: true });
+      const r = await hear();
+      if (r && r.text) showSaid(r.text, null);
+    }
+    await say('Now all together.'); await say(s.en, { slow: true });
+    const r = await hear();
+    if (r && r.text) { const j = C.judge(s, r.text, data.learned); logAttempt(s, 'split', 'repeat', r, j); showSaid(r.text, j); await say(j.verdict === 'pass' ? 'Much better.' : "We'll keep working on it."); }
+  }
+
+  async function story(list) {
+    const n = list.length;
+    setPhase('연결 말하기', 'FULL STORY', 0, 0);
+    await say(`Ready for the story? ${n} sentences. Say yes, or skip.`);
+    const ok = await hear();
+    const c = ok && C.parseCommand(ok.text);
+    if (c === 'stop') throw new Stop();
+    if (!ok || c === 'skip' || /\b(no|nope|later)\b|아니/.test((ok.text || '').toLowerCase())) { await say('Okay, next time.'); return null; }
+    $('s-tag').textContent = `STORY · ${n} SENTENCES`;
+    $('s-en').textContent = list.map(s => s.ko).join(' → '); $('s-en').classList.add('hidden-en'); $('s-ko').textContent = '출근부터 순서대로 이어서 말하기';
+    let result = null;
+    for (let round = 0; round < 2; round++) {
+      await say(round ? 'One more time, from the start.' : 'Tell me your morning, from heading to work.');
+      const r = await hear({ long: true, timeout: 10000 });
+      await checkpoint();
+      if (!r || !r.text) { await say("Let's try it another day."); break; }
+      const m = C.storyMatch(list, r.text);
+      const found = m.filter(x => x.found).length;
+      result = { n, found };
+      data.attempts.push({ t: new Date().toISOString(), day: C.today(), sid: 'story', kind: 'story', text: r.text, via: r.via, latency: r.latency, verdict: found === n ? 'pass' : 'fix', found, n });
+      showSaid(r.text, { verdict: found === n ? 'pass' : 'fix' });
+      m.filter(x => x.found).forEach(x => { data.states[x.id] = C.updateState(stateOf(x.id), 'story', { passed: true }, C.today()); });
+      save();
+      if (found === n) { await say(`Great story. All ${n} sentences, in order.`); break; }
+      const miss = list.find((s, i) => !m[i].found);
+      await say(`You got ${found} of ${n}. You missed this one:`); await say(miss.en, { slow: true });
+    }
+    return result;
+  }
+
+  async function runSession() {
+    const day = C.today();
+    const plan = C.planSession(data.states, day);
+    const sess = { start: new Date().toISOString(), day, mode: driveOn ? 'drive' : 'normal', learned: null, results: [], story: null, end: null };
+    ctl.running = true; ctl.stop = false; ctl.paused = false; ctl.reason = null;
+    enableControls(true); setStatus('speaking');
+    try {
+      const last = data.sessions[data.sessions.length - 1];
+      const lastS = last && last.learned && byId[last.learned];
+      setPhase('시작', 'HELLO', 0, 0);
+      await say(lastS ? `Welcome back. Last time we worked on: ${lastS.en}` : "Good morning. Let's practice your commute English.");
+
+      // 1. 워밍업 복습
+      for (let i = 0; i < plan.review.length; i++) {
+        const s = plan.review[i];
+        await checkpoint();
+        setPhase('워밍업 복습', 'WARM-UP', i + 1, plan.review.length);
+        const r = await drill(s, s.type === 'core' ? 'recall' : 'cue', 'review');
+        if (s.type === 'ext' && r.passed) data.states[s.id] = C.updateState(stateOf(s.id), 'transfer', r, day);
+        data.states[s.id] = C.updateState(stateOf(s.id), 'review', r, day);
+        sess.results.push({ sid: s.id, kind: 'review', ...r }); save();
+      }
+
+      // 2. 오늘의 문장
+      const todays = [];
+      if (plan.fresh) {
+        await checkpoint();
+        setPhase("오늘의 문장", "TODAY'S SENTENCE", 0, 0);
+        const s = plan.fresh;
+        const r = await drill(s, 'repeat', 'learn');
+        data.states[s.id] = C.updateState(stateOf(s.id), 'learn', r, day);
+        sess.results.push({ sid: s.id, kind: 'learn', ...r }); sess.learned = s.id; save();
+        if (r.passed) todays.push(s);
+      } else {
+        const learning = C.SENTENCES.filter(s => stateOf(s.id).level === 'learning' && !plan.review.includes(s)).slice(0, 2);
+        if (learning.length) await say("No new sentence today. Let's make these solid.");
+        for (const s of learning) {
+          await checkpoint();
+          setPhase('다지기', 'PRACTICE', 0, 0);
+          const r = await drill(s, 'repeat', 'learn');
+          data.states[s.id] = C.updateState(stateOf(s.id), 'learn', r, day);
+          sess.results.push({ sid: s.id, kind: 'learn', ...r }); save();
+          if (r.passed) todays.push(s);
+        }
+      }
+
+      // 3. 연결 말하기
+      if (plan.story.length >= 2) { await checkpoint(); sess.story = await story(plan.story); }
+
+      // 4. 마무리 재확인
+      for (const s of todays.slice(0, 2)) {
+        await checkpoint();
+        setPhase('마무리 재확인', 'LAST CHECK', 0, 0);
+        await say('Before we finish, one more time.');
+        const r = await drill(s, s.type === 'core' ? 'recall' : 'repeat', 'recheck');
+        data.states[s.id] = C.updateState(stateOf(s.id), 'recheck', r, day);
+        sess.results.push({ sid: s.id, kind: 'recheck', ...r }); save();
+      }
+      setPhase('끝', 'DONE', 0, 0);
+      await say("That's it for today. See you tomorrow.");
+      sess.end = 'done';
+    } catch (e) {
+      sess.end = e instanceof Stop ? 'stopped' : 'error';
+      if (!(e instanceof Stop)) console.error(e);
+      if (synth) synth.cancel();
+      ctl.stop = false;
+      if (ctl.reason === 'mic') sess.end = 'mic';
+      await say({ stopped: "Okay, we'll stop here. Your progress is saved.", mic: "I can't hear you. Please allow the microphone and start again." }[sess.end] || 'Something went wrong. Your progress is saved.');
+    } finally {
+      sess.finished = new Date().toISOString();
+      data.sessions.push(sess); if (data.sessions.length > 200) data.sessions = data.sessions.slice(-200);
+      save();
+      ctl.running = false; ctl.paused = false;
+      enableControls(false); renderEnv(); setStatus('idle');
+      setPhase('오늘의 출근길 수업', 'READY', 0, 0);
+      releaseWake();
+      renderPlan(); renderRecords();
+    }
+  }
+
+  // Once a lesson runs, nothing on screen takes input: answers and commands are spoken.
+  function enableControls(on) {
+    $('start').disabled = on || !voiceOK(); $('drive-start').disabled = on || !voiceOK();
+    $('speed').disabled = on;
+    $('start').textContent = on ? '음성으로 진행 중' : '수업 시작';
+    $('d-btn').hidden = on; $('d-bot').hidden = on;
+  }
+
+  // ---------- Drive mode ----------
+  async function grabWake() { try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { wakeLock = null; } }
+  function releaseWake() { try { if (wakeLock) wakeLock.release(); } catch (e) { /* ignore */ } wakeLock = null; }
+  function setDrive(on) {
+    driveOn = on && voiceOK();
+    $('drive').hidden = !driveOn;
+    if (driveOn) grabWake();
+  }
+  $('drive-start').addEventListener('click', () => { if (!voiceOK()) return; setDrive(true); if (!ctl.running) runSession(); });
+  $('d-btn').addEventListener('click', () => { if (!ctl.running && voiceOK()) runSession(); });
+  $('d-exit').addEventListener('click', () => setDrive(false));
+
+  // ---------- Lesson wiring ----------
+  $('start').addEventListener('click', () => { if (!ctl.running && voiceOK()) runSession(); });
+  $('speed').value = String(data.settings.speed);
+  $('speed').addEventListener('change', e => { data.settings.speed = Number(e.target.value); save(); });
+
+  function renderPlan() {
+    const day = C.today();
+    const p = C.planSession(data.states, day);
+    const box = $('plan'); box.textContent = '';
+    const h = document.createElement('h2'); h.textContent = '오늘의 수업 계획'; box.append(h);
+    const ol = document.createElement('ol');
+    const li = (main, sub) => { const x = document.createElement('li'); x.append(main); if (sub) { const s = document.createElement('span'); s.textContent = ' · ' + sub; x.append(s); } ol.append(x); };
+    li(`워밍업 복습 ${p.review.length}문장`, p.review.length ? p.review.map(s => s.type === 'core' ? `핵심 ${s.order}` : '확장').join(', ') : '복습할 문장 없음');
+    li('오늘의 문장', p.fresh ? p.fresh.en : '새 문장 없음 (학습 중 문장 다지기)');
+    li('연결 말하기', p.story.length ? `${p.story.length}문장 이어 말하기` : '핵심 문장 2개가 복습 단계에 오르면 시작');
+    li('마무리 재확인', '오늘 통과한 문장을 한 번 더');
+    box.append(ol);
+    const next = p.fresh || p.review[0] || byId.c1;
+    showSentence(next, 'repeat');
+  }
+
+  // ---------- Records ----------
+  const LEVEL = { new: '새 문장', learning: '학습 중', review: '복습 중', mastered: '숙달' };
+  const KIND = { article: '관사', preposition: '전치사', connector: '연결어', form: '시제·복수형', word_order: '어순', contraction: '축약형·be동사', word: '어휘' };
+
+  function metric(k, v, d, na) {
+    const m = document.createElement('div'); m.className = 'metric';
+    const a = document.createElement('div'); a.className = 'k'; a.textContent = k;
+    const b = document.createElement('div'); b.className = 'v' + (na ? ' na' : ''); b.textContent = v;
+    const c = document.createElement('div'); c.className = 'd'; c.textContent = d;
+    m.append(a, b, c); return m;
+  }
+  function table(headers, rows) {
+    const w = document.createElement('div'); w.className = 'tablewrap';
+    const t = document.createElement('table');
+    const thead = document.createElement('tr');
+    headers.forEach(h => { const th = document.createElement('th'); th.textContent = h; thead.append(th); });
+    t.append(thead);
+    rows.forEach(r => { const tr = document.createElement('tr'); r.forEach(cell => { const td = document.createElement('td'); if (cell instanceof Node) td.append(cell); else if (cell && cell.num) { td.className = 'num'; td.textContent = cell.num; } else if (cell && cell.nowrap) { td.className = 'nowrap'; td.textContent = cell.nowrap; } else td.textContent = cell; tr.append(td); }); t.append(tr); });
+    w.append(t); return w;
+  }
+  function section(title, ...kids) { const s = document.createElement('div'); s.className = 'sec'; const h = document.createElement('h2'); h.textContent = title; s.append(h, ...kids); return s; }
+
+  function renderRecords() {
+    const v = $('view-records'); v.textContent = '';
+    const A = data.attempts;
+    const since = C.addDays(C.today(), -14);
+    const reviews = A.filter(a => a.kind === 'review' && a.day >= since);
+    const firstTries = {}; reviews.forEach(a => { const k = a.day + a.sid; if (!(k in firstTries)) firstTries[k] = a.verdict === 'pass'; });
+    const ft = Object.values(firstTries);
+    const lat = A.filter(a => a.via === 'voice' && a.latency != null && a.day >= since).map(a => a.latency).sort((x, y) => x - y);
+    const lastStory = [...A].reverse().find(a => a.kind === 'story');
+    const transfer = C.SENTENCES.filter(s => s.type === 'ext' && (stateOf(s.id).contexts || []).length).length;
+
+    const metrics = document.createElement('div'); metrics.className = 'metrics';
+    metrics.append(
+      ft.length ? metric('Retention', Math.round(100 * ft.filter(Boolean).length / ft.length) + '%', `최근 14일 복습 ${ft.length}회 중 첫 시도 통과`) : metric('Retention', '미측정', '복습 기록이 쌓이면 표시', true),
+      lat.length ? metric('Fluency', (lat[Math.floor(lat.length / 2)] / 1000).toFixed(1) + '초', '말하기 시작까지 걸린 시간 (중앙값, 음성만)') : metric('Fluency', '미측정', '음성으로 답한 기록이 없음', true),
+      lastStory ? metric('Coherence', `${lastStory.found}/${lastStory.n}`, '마지막 연결 말하기에서 순서대로 말한 문장') : metric('Coherence', '미측정', '연결 말하기 전', true),
+      metric('Transfer', `${transfer}/6`, '확장 문장(새 상황) 통과'),
+      metric('Pronunciation', '미측정', '발음·강세·리듬은 실제 음성 분석 전까지 점수 없음', true),
+    );
+    v.append(section('지표', metrics));
+
+    const rows = C.SENTENCES.map(s => {
+      const st = stateOf(s.id);
+      const p = document.createElement('span'); p.className = 'pill ' + st.level; p.textContent = LEVEL[st.level];
+      return [{ nowrap: s.type === 'core' ? `핵심 ${s.order}` : '확장' }, s.en, p, { num: st.next || '—' }];
+    });
+    v.append(section('문장별 상태', table(['구분', '문장', '단계', '다음 복습'], rows)));
+
+    const errs = Object.entries(data.errors).sort((a, b) => b[1].count - a[1].count);
+    v.append(section('반복 오류', errs.length ? table(['유형', '횟수', '최근 예'], errs.map(([k, x]) => [{ nowrap: KIND[k] || k }, { num: String(x.count) }, x.example])) : Object.assign(document.createElement('div'), { className: 'empty', textContent: '아직 교정 기록이 없습니다.' })));
+
+    const recent = A.slice(-12).reverse();
+    v.append(section('최근 발화', recent.length ? table(['날짜', '말한 문장', '판정'], recent.map(a => [{ num: a.day.slice(5) }, a.text, { nowrap: { pass: '통과', fix: '교정', korean: '한국어' }[a.verdict] || a.verdict }])) : Object.assign(document.createElement('div'), { className: 'empty', textContent: '첫 수업을 시작하면 여기에 쌓입니다.' })));
+
+    const tools = document.createElement('div'); tools.className = 'row';
+    const copy = document.createElement('button'); copy.className = 'btn'; copy.type = 'button'; copy.textContent = '기록 백업 복사';
+    copy.addEventListener('click', () => {
+      const txt = JSON.stringify(data);
+      navigator.clipboard.writeText(txt).then(() => { copy.textContent = '복사됨'; }).catch(() => { copy.textContent = '복사 실패: 브라우저가 막았습니다'; });
+    });
+    const reset = document.createElement('button'); reset.className = 'btn'; reset.type = 'button'; reset.textContent = '기록 초기화';
+    reset.addEventListener('click', () => {
+      if (reset.dataset.armed) { data = blank(); save(); renderPlan(); renderRecords(); return; }
+      reset.dataset.armed = '1'; reset.textContent = '한 번 더 누르면 모두 삭제';
+    });
+    const note = document.createElement('div'); note.className = 'empty'; note.textContent = '기록은 이 기기의 브라우저에만 저장됩니다.';
+    tools.append(copy, reset);
+    v.append(section('데이터', tools, note));
+  }
+
+  function tab(which) {
+    $('tab-lesson').setAttribute('aria-selected', String(which === 'lesson'));
+    $('tab-records').setAttribute('aria-selected', String(which === 'records'));
+    $('view-lesson').hidden = which !== 'lesson';
+    $('view-records').hidden = which !== 'records';
+    if (which === 'records') renderRecords();
+  }
+  $('tab-lesson').addEventListener('click', () => tab('lesson'));
+  $('tab-records').addEventListener('click', () => tab('records'));
+
+  renderEnv(); renderPlan(); renderRecords(); setStatus('idle');
+})();
+</script>
+
+</body></html>

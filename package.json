@@ -1,0 +1,8 @@
+{
+  "name": "commute-coach",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/core.test.js && node test/e2e.mjs"
+  }
+}
