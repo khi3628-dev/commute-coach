@@ -206,15 +206,17 @@
   }
 
   // ---------- Session plan ----------
+  // opts.extra: the learner's own sentences (내 문장). They join reviews but not the story.
   function planSession(states, day, opts) {
-    const o = { maxReview: 4, ...opts };
+    const o = { maxReview: 4, extra: [], ...opts };
     const st = id => states[id] || newState();
-    const due = SENTENCES.filter(s => {
+    const all = SENTENCES.concat(o.extra);
+    const due = all.filter(s => {
       const x = st(s.id);
       return x.level !== 'new' && x.next && x.next <= day;
     }).sort((a, b) => (st(a.id).next < st(b.id).next ? -1 : st(a.id).next > st(b.id).next ? 1 : 0));
     const review = due.slice(0, o.maxReview);
-    const learning = SENTENCES.filter(s => st(s.id).level === 'learning').length;
+    const learning = all.filter(s => st(s.id).level === 'learning').length;
     let fresh = null;
     if (learning < 3) {
       const cores = SENTENCES.filter(s => s.type === 'core').sort((a, b) => a.order - b.order);
@@ -229,7 +231,70 @@
     return { review, fresh, story: cores.slice(0, storyLen) };
   }
 
-  const api = { SENTENCES, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
+  // ---------- 내 문장 만들기: Claude 요청과 응답 검증 ----------
+  const SENTENCE_SCHEMA = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['sentences', 'feedback'],
+    properties: {
+      feedback: { type: 'string' },
+      sentences: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['en', 'ko', 'grammar'],
+          properties: { en: { type: 'string' }, ko: { type: 'string' }, grammar: { type: 'string' } },
+        },
+      },
+    },
+  };
+
+  // lang: 'ko' (the learner described it in Korean) or 'en' (the learner tried in English)
+  function sentencePrompt(text, lang, known) {
+    return [
+      'You are an American English speaking coach for a Korean adult who practices out loud while commuting.',
+      lang === 'ko'
+        ? 'The learner described something from their own day in Korean (speech-to-text, may have recognition errors).'
+        : 'The learner tried to say something from their own day in English (speech-to-text, so ignore punctuation and capitalization).',
+      `Learner said: "${text}"`,
+      'Turn it into 1 or 2 short sentences the learner would actually say in casual spoken American English.',
+      'Rules: first person; keep the learner\'s meaning and details; at most 12 words per sentence; everyday words; contractions are fine; no idioms the learner did not imply.',
+      `Sentences the learner already knows (reuse their patterns when they fit): ${JSON.stringify(known.slice(0, 20))}`,
+      'For each sentence give: en (the sentence), ko (natural Korean meaning), grammar (one short Korean label for the key point, e.g. "과거시형 · met up with").',
+      lang === 'ko'
+        ? 'feedback: one short English sentence the teacher says before the drill, like "Here\'s how you can say that."'
+        : 'feedback: one short English sentence that names the most important fix in the learner\'s attempt, or "That was close. Here\'s a natural way." if it was fine.',
+    ].join('\n');
+  }
+
+  function sentenceRequest(text, lang, known, model) {
+    return {
+      model: model || 'claude-opus-5-5',
+      max_tokens: 2000,
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: SENTENCE_SCHEMA } },
+      fallbacks: 'default',
+      messages: [{ role: 'user', content: sentencePrompt(text, lang, known) }],
+    };
+  }
+
+  // Validate a Messages API response; returns {sentences, feedback} or throws a readable error.
+  function parseSentenceResponse(resp) {
+    if (!resp || resp.type === 'error') throw new Error((resp && resp.error && resp.error.message) || 'empty response');
+    if (resp.stop_reason === 'refusal') throw new Error('refused');
+    if (resp.stop_reason === 'max_tokens') throw new Error('cut off');
+    const block = (resp.content || []).find(b => b.type === 'text');
+    if (!block) throw new Error('no text');
+    const out = JSON.parse(block.text);
+    const sentences = (out.sentences || [])
+      .map(x => ({ en: String(x.en || '').trim(), ko: String(x.ko || '').trim(), grammar: String(x.grammar || '').trim() }))
+      .filter(x => x.en && !hasHangul(x.en) && x.en.split(/\s+/).length <= 16)
+      .slice(0, 2);
+    if (!sentences.length) throw new Error('no usable sentence');
+    return { sentences, feedback: String(out.feedback || '').trim().slice(0, 140) };
+  }
+
+  const api = { SENTENCES, sentencePrompt, sentenceRequest, parseSentenceResponse, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CoachCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

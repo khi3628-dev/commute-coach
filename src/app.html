@@ -79,6 +79,12 @@ header.top { display: flex; align-items: center; justify-content: space-between;
 .plan li span { color: var(--muted); font-size: 13px; }
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .settings { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 14px; color: var(--muted); }
+.mine { gap: 8px; }
+.mine h2, #ai summary { font-family: var(--f-display); font-weight: 800; font-size: 15px; letter-spacing: .06em; text-transform: uppercase; margin: 0; color: var(--muted); }
+#ai summary { cursor: pointer; }
+#ai input { flex: 1; min-width: 0; width: 100%; font: inherit; font-size: 16px; padding: 8px 10px; border: 1.5px solid var(--line); border-radius: var(--r); background: var(--surface); color: var(--ink); }
+#ai .row { flex-wrap: nowrap; }
+@media (max-width: 480px) { #ai .row { flex-wrap: wrap; } }
 .settings select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
 
 /* Records tab */
@@ -153,11 +159,36 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
       <button class="btn primary big" id="start" type="button">수업 시작</button>
       <button class="btn big" id="drive-start" type="button">운전 모드로 시작</button>
     </div>
+    <div class="card mine">
+      <h2>내 문장 만들기</h2>
+      <p class="empty">오늘 있었던 일을 말하면 Claude가 자연스러운 영어 문장으로 만들어 주고, 바로 따라 말하기 연습을 한 뒤 복습 목록에 넣습니다. 누르고 나면 모두 말로 진행합니다.</p>
+      <div class="row">
+        <button class="btn primary" id="mine-ko" type="button">한국어로 말하기</button>
+        <button class="btn" id="mine-en" type="button">영어로 말해 보기</button>
+      </div>
+    </div>
+
     <div class="settings">
       <label>말하기 속도
         <select id="speed"><option value="0">느림</option><option value="1">보통</option><option value="2">자연</option></select>
       </label>
+      <label>선생님 목소리
+        <select id="voice"><option value="">자동 선택</option></select>
+      </label>
+      <button class="btn" id="voice-test" type="button">미리 듣기</button>
     </div>
+    <p class="empty" id="voice-hint"></p>
+
+    <details class="card" id="ai">
+      <summary>Claude 연결 (내 문장 만들기용)</summary>
+      <p class="empty">Anthropic API 키를 넣으면 이 iPhone의 브라우저에만 저장됩니다. 기록 백업에는 포함되지 않습니다.</p>
+      <div class="row">
+        <input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-..." aria-label="API 키">
+        <button class="btn" id="api-save" type="button">저장하고 확인</button>
+        <button class="btn" id="api-clear" type="button">지우기</button>
+      </div>
+      <p class="empty" id="api-status"></p>
+    </details>
   </section>
 
   <section id="view-records" class="sec" hidden></section>
@@ -182,15 +213,19 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
   'use strict';
   const C = window.CoachCore;
   const $ = id => document.getElementById(id);
-  const byId = Object.fromEntries(C.SENTENCES.map(s => [s.id, s]));
 
   // ---------- Storage (기기 내 저장) ----------
   const KEY = 'commute-coach.v1';
-  function blank() { return { states: {}, attempts: [], sessions: [], learned: {}, errors: {}, settings: { speed: 1 } }; }
+  function blank() { return { states: {}, attempts: [], sessions: [], learned: {}, errors: {}, custom: [], settings: { speed: 1, voice: '' } }; }
   let data = blank();
   try { const raw = localStorage.getItem(KEY); if (raw) data = { ...blank(), ...JSON.parse(raw) }; } catch (e) { /* storage unavailable */ }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { /* ignore */ } }
+  data.settings = { ...blank().settings, ...data.settings };
   const stateOf = id => data.states[id] || C.newState();
+  const allSentences = () => C.SENTENCES.concat(data.custom);
+  const byId = id => allSentences().find(s => s.id === id);
+  const plan = day => C.planSession(data.states, day, { extra: data.custom });
+  const askMode = s => (s.type === 'ext' ? 'cue' : 'recall');
 
   // ---------- Environment ----------
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -205,7 +240,8 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     const line = (b, t) => { const d = document.createElement('div'); const s = document.createElement('b'); s.textContent = b; d.append(s, ' ' + t); env.append(d); };
     if (voiceOK()) line('음성 전용 수업.', '시작한 뒤에는 답과 명령을 모두 말로 합니다. 처음 시작할 때 마이크 권한을 허용하세요.');
     else line('이 화면에서는 음성 인식을 쓸 수 없어 수업을 시작할 수 없습니다.', 'iPhone Safari로 HTTPS 주소를 열어 주세요. 기록 탭은 볼 수 있습니다.');
-    if (!ctl.running) { $('start').disabled = !voiceOK(); $('drive-start').disabled = !voiceOK(); }
+    line(apiKey() ? 'Claude 연결됨.' : 'Claude 미연결.', apiKey() ? '"내 문장 만들기"를 쓸 수 있습니다.' : '"내 문장 만들기"를 쓰려면 아래 Claude 연결에 API 키를 넣으세요.');
+    if (!ctl.running) { for (const id of ['start', 'drive-start', 'mine-ko', 'mine-en']) $(id).disabled = !voiceOK(); }
   }
 
   // ---------- Speech out ----------
@@ -213,11 +249,33 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
   let voices = [];
   function loadVoices() { if (synth) voices = synth.getVoices() || []; }
   loadVoices();
-  if (synth && 'onvoiceschanged' in synth) synth.onvoiceschanged = loadVoices;
+  if (synth && 'onvoiceschanged' in synth) synth.onvoiceschanged = () => { loadVoices(); renderVoices(); };
+  // Higher-quality iOS voices are named "(Premium)" / "(Enhanced)" (Korean UI: 프리미엄 / 향상됨) once downloaded.
+  function quality(v, lang) {
+    let q = 0;
+    if (/premium|프리미엄/i.test(v.name)) q += 30;
+    if (/enhanced|향상/i.test(v.name)) q += 20;
+    if (!v.localService) q += 5;
+    const fav = lang === 'en-US' ? /Ava|Samantha|Allison|Evan|Zoe|Nathan|Joelle|Noelle|Tom|Susan|Aria|Jenny|Google US English/i : /Yuna|Jian|Suhyun|Sora|Google 한국/i;
+    if (fav.test(v.name)) q += 3;
+    if (/Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Fred|Junior|Ralph|Kathy|Grandma|Grandpa|Rocko|Shelley|Flo|Eddy|Reed|Sandy/i.test(v.name)) q -= 50; // novelty voices
+    return q;
+  }
+  const voicesFor = lang => voices.filter(v => (v.lang || '').replace('_', '-') === lang).sort((a, b) => quality(b, lang) - quality(a, lang));
   function pickVoice(lang) {
-    const list = voices.filter(v => (v.lang || '').replace('_', '-').startsWith(lang));
-    const pref = lang === 'en-US' ? /Samantha|Ava|Allison|Nicky|Google US English|Aria|Jenny/i : /Yuna|Google 한국|Sora|Heami/i;
-    return list.find(v => pref.test(v.name)) || list[0] || null;
+    const list = voicesFor(lang);
+    if (lang === 'en-US' && data.settings.voice) { const v = list.find(x => x.voiceURI === data.settings.voice); if (v) return v; }
+    return list[0] || null;
+  }
+  function renderVoices() {
+    const sel = $('voice'); if (!sel) return;
+    const list = voicesFor('en-US');
+    sel.textContent = '';
+    const auto = document.createElement('option'); auto.value = ''; auto.textContent = list[0] ? `자동 선택 (${list[0].name})` : '자동 선택'; sel.append(auto);
+    list.filter(v => quality(v, 'en-US') > -10).forEach(v => { const o = document.createElement('option'); o.value = v.voiceURI; o.textContent = v.name; sel.append(o); });
+    sel.value = list.some(v => v.voiceURI === data.settings.voice) ? data.settings.voice : '';
+    const good = list.some(v => /premium|enhanced|프리미엄|향상/i.test(v.name));
+    $('voice-hint').textContent = good ? '' : '더 자연스러운 목소리: iPhone 설정 → 손쉬운 사용 → 읽기 및 말하기 → 음성 → 영어 → 미국에서 "향상됨" 또는 "프리미엄" 음성을 내려받은 뒤 이 화면을 새로 고치세요.';
   }
   function say(text, opt) {
     const o = { lang: 'en-US', slow: false, ...opt };
@@ -240,7 +298,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
 
   // ---------- Speech in ----------
   function hear(opt) {
-    const o = { timeout: 8000, long: false, ...opt };
+    const o = { timeout: 8000, long: false, lang: 'en-US', ...opt };
     return new Promise(resolve => {
       let done = false, rec = null, timer = null, silence = null, finals = '';
       const t0 = performance.now(); let spokeAt = null;
@@ -256,7 +314,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
       {
         try {
           rec = new SR();
-          rec.lang = 'en-US'; rec.interimResults = o.long; rec.continuous = o.long; rec.maxAlternatives = 1;
+          rec.lang = o.lang; rec.interimResults = o.long; rec.continuous = o.long; rec.maxAlternatives = 1;
           rec.onspeechstart = () => { if (!spokeAt) spokeAt = performance.now(); clearTimeout(timer); };
           rec.onresult = e => {
             if (!spokeAt) spokeAt = performance.now();
@@ -317,7 +375,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     $('d-phase').textContent = n ? `${en} ${i}/${n}` : en;
   }
   function showSentence(s, mode) {
-    $('s-tag').textContent = `${s.type === 'core' ? 'CORE ' + s.order : 'EXTENSION'} · ${s.grammar}`;
+    $('s-tag').textContent = `${s.type === 'core' ? 'CORE ' + s.order : s.type === 'mine' ? 'MY SENTENCE' : 'EXTENSION'} · ${s.grammar}`;
     const en = $('s-en');
     if (mode === 'recall') { en.textContent = '영어로 말해 보세요'; en.classList.add('hidden-en'); }
     else if (mode === 'cue') { en.textContent = s.cue; en.classList.add('hidden-en'); }
@@ -472,15 +530,19 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     return result;
   }
 
-  async function runSession() {
+  async function runSession(mode, lang) {
     const day = C.today();
-    const plan = C.planSession(data.states, day);
+    const plan = C.planSession(data.states, day, { extra: data.custom });
     const sess = { start: new Date().toISOString(), day, mode: driveOn ? 'drive' : 'normal', learned: null, results: [], story: null, end: null };
     ctl.running = true; ctl.stop = false; ctl.paused = false; ctl.reason = null;
     enableControls(true); setStatus('speaking');
     try {
+     if (mode === 'mine') {
+      sess.mode = 'mine-' + lang;
+      await mineFlow(lang, sess, day);
+     } else {
       const last = data.sessions[data.sessions.length - 1];
-      const lastS = last && last.learned && byId[last.learned];
+      const lastS = last && last.learned && byId(last.learned);
       setPhase('시작', 'HELLO', 0, 0);
       await say(lastS ? `Welcome back. Last time we worked on: ${lastS.en}` : "Good morning. Let's practice your commute English.");
 
@@ -489,7 +551,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
         const s = plan.review[i];
         await checkpoint();
         setPhase('워밍업 복습', 'WARM-UP', i + 1, plan.review.length);
-        const r = await drill(s, s.type === 'core' ? 'recall' : 'cue', 'review');
+        const r = await drill(s, askMode(s), 'review');
         if (s.type === 'ext' && r.passed) data.states[s.id] = C.updateState(stateOf(s.id), 'transfer', r, day);
         data.states[s.id] = C.updateState(stateOf(s.id), 'review', r, day);
         sess.results.push({ sid: s.id, kind: 'review', ...r }); save();
@@ -506,7 +568,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
         sess.results.push({ sid: s.id, kind: 'learn', ...r }); sess.learned = s.id; save();
         if (r.passed) todays.push(s);
       } else {
-        const learning = C.SENTENCES.filter(s => stateOf(s.id).level === 'learning' && !plan.review.includes(s)).slice(0, 2);
+        const learning = allSentences().filter(s => stateOf(s.id).level === 'learning' && !plan.review.includes(s)).slice(0, 2);
         if (learning.length) await say("No new sentence today. Let's make these solid.");
         for (const s of learning) {
           await checkpoint();
@@ -526,10 +588,11 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
         await checkpoint();
         setPhase('마무리 재확인', 'LAST CHECK', 0, 0);
         await say('Before we finish, one more time.');
-        const r = await drill(s, s.type === 'core' ? 'recall' : 'repeat', 'recheck');
+        const r = await drill(s, s.type === 'ext' ? 'repeat' : 'recall', 'recheck');
         data.states[s.id] = C.updateState(stateOf(s.id), 'recheck', r, day);
         sess.results.push({ sid: s.id, kind: 'recheck', ...r }); save();
       }
+     }
       setPhase('끝', 'DONE', 0, 0);
       await say("That's it for today. See you tomorrow.");
       sess.end = 'done';
@@ -555,7 +618,9 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
   // Once a lesson runs, nothing on screen takes input: answers and commands are spoken.
   function enableControls(on) {
     $('start').disabled = on || !voiceOK(); $('drive-start').disabled = on || !voiceOK();
-    $('speed').disabled = on;
+    $('mine-ko').disabled = on || !voiceOK(); $('mine-en').disabled = on || !voiceOK();
+    $('speed').disabled = on; $('voice').disabled = on; $('voice-test').disabled = on;
+    for (const id of ['api-key', 'api-save', 'api-clear']) $(id).disabled = on;
     $('start').textContent = on ? '음성으로 진행 중' : '수업 시작';
     $('d-btn').hidden = on; $('d-bot').hidden = on;
   }
@@ -568,18 +633,113 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     $('drive').hidden = !driveOn;
     if (driveOn) grabWake();
   }
-  $('drive-start').addEventListener('click', () => { if (!voiceOK()) return; setDrive(true); if (!ctl.running) runSession(); });
-  $('d-btn').addEventListener('click', () => { if (!ctl.running && voiceOK()) runSession(); });
+  $('drive-start').addEventListener('click', () => { if (!voiceOK()) return; setDrive(true); if (!ctl.running) runSession('lesson'); });
+  $('d-btn').addEventListener('click', () => { if (!ctl.running && voiceOK()) runSession('lesson'); });
   $('d-exit').addEventListener('click', () => setDrive(false));
 
+  // ---------- Claude: 내 문장 만들기 ----------
+  const KEY_STORE = 'commute-coach.apikey'; // kept apart so the backup copy never includes it
+  function apiKey() { try { return localStorage.getItem(KEY_STORE) || ''; } catch (e) { return ''; } }
+
+  async function generate(text, lang) {
+    const known = allSentences().map(s => s.en);
+    const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 30000);
+    let res;
+    try {
+      res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST', signal: ctrl.signal,
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': apiKey(),
+          'anthropic-version': '2023-06-01',
+          'anthropic-beta': 'server-side-fallback-2026-07-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify(C.sentenceRequest(text, lang, known)),
+      });
+    } catch (e) { const err = new Error('network'); err.code = 'network'; throw err; }
+    finally { clearTimeout(t); }
+    const body = await res.json().catch(() => null);
+    if (!res.ok) { const err = new Error((body && body.error && body.error.message) || 'HTTP ' + res.status); err.code = res.status; throw err; }
+    return C.parseSentenceResponse(body);
+  }
+  function failMessage(e) {
+    if (e.code === 401 || e.code === 403) return 'API 키가 맞지 않아요. 설정에서 다시 확인해 주세요.';
+    if (e.code === 429) return '요청이 많아서 잠시 막혔어요. 조금 뒤에 다시 해요.';
+    if (e.code === 'network') return '인터넷 연결이 불안정해요. 나중에 다시 해요.';
+    if (e.code === 400 && /credit|balance/i.test(e.message)) return 'API 크레딧이 부족해요. 결제 설정을 확인해 주세요.';
+    return '문장을 만들지 못했어요. 나중에 다시 해요.';
+  }
+  function addMine(g, source, day) {
+    const same = allSentences().find(s => C.norm(s.en).join(' ') === C.norm(g.en).join(' '));
+    if (same) return same;
+    const s = { id: 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), type: 'mine', en: g.en, ko: g.ko, grammar: g.grammar || '내 문장', variants: [], source, created: day, provenance: 'teacher_suggested' };
+    data.custom.push(s); save();
+    return s;
+  }
+
+  async function mineFlow(lang, sess, day) {
+    setPhase('내 문장 만들기', 'MY SENTENCE', 0, 0);
+    if (!apiKey()) { await sayKo('Claude 연결이 필요해요. 설정에서 API 키를 넣어 주세요.'); return; }
+    const passed = [];
+    for (let round = 0; round < 3; round++) {
+      await checkpoint();
+      if (lang === 'ko') await sayKo(round ? '하나 더 만들까요? 다른 이야기를 말하거나, 그만이라고 말해 주세요.' : '오늘 있었던 일이나 하고 싶은 말을 한국어로 말해 주세요.');
+      else await say(round ? 'Another one? Tell me something else, or say stop.' : 'Tell me about your day in English. Mistakes are fine.');
+      const r = await hear({ long: true, timeout: 12000, lang: lang === 'ko' ? 'ko-KR' : 'en-US' });
+      await checkpoint();
+      if (!r || !r.text) { await sayKo('잘 안 들렸어요. 다음에 다시 해요.'); break; }
+      const c = C.parseCommand(r.text);
+      if (c === 'stop') { if (round) break; throw new Stop(); }
+      if (c === 'skip') break;
+      showSaid(r.text, null);
+      await sayKo('잠깐만요, 문장을 만들고 있어요.');
+      let gen;
+      try { gen = await generate(r.text, lang); } catch (e) { await sayKo(failMessage(e)); break; }
+      data.attempts.push({ t: new Date().toISOString(), day, sid: 'mine', kind: 'mine', text: r.text, via: r.via, latency: r.latency, verdict: 'source' });
+      await checkpoint();
+      await say(gen.feedback || "Here's how you can say that.");
+      for (const g of gen.sentences) {
+        const s = addMine(g, r.text, day);
+        const res = await drill(s, 'repeat', 'learn');
+        data.states[s.id] = C.updateState(stateOf(s.id), 'learn', res, day);
+        sess.results.push({ sid: s.id, kind: 'learn', ...res }); sess.learned = s.id; save();
+        if (res.passed && !passed.includes(s)) passed.push(s);
+      }
+    }
+    for (const s of passed.slice(0, 2)) {
+      await checkpoint();
+      setPhase('마무리 재확인', 'LAST CHECK', 0, 0);
+      await say('Before we finish, one more time.');
+      const r = await drill(s, 'recall', 'recheck');
+      data.states[s.id] = C.updateState(stateOf(s.id), 'recheck', r, day);
+      sess.results.push({ sid: s.id, kind: 'recheck', ...r }); save();
+    }
+  }
+
+  $('mine-ko').addEventListener('click', () => { if (!ctl.running && voiceOK()) runSession('mine', 'ko'); });
+  $('mine-en').addEventListener('click', () => { if (!ctl.running && voiceOK()) runSession('mine', 'en'); });
+  $('voice').addEventListener('change', e => { data.settings.voice = e.target.value; save(); });
+  $('voice-test').addEventListener('click', async () => { if (ctl.running) return; await say("I'm heading to work. It takes about twenty minutes by car."); setStatus('idle'); });
+  $('api-save').addEventListener('click', async () => {
+    const k = $('api-key').value.trim();
+    if (!k) { $('api-status').textContent = '키를 입력해 주세요.'; return; }
+    try { localStorage.setItem(KEY_STORE, k); } catch (e) { $('api-status').textContent = '이 브라우저에 저장할 수 없습니다.'; return; }
+    $('api-key').value = ''; $('api-status').textContent = '확인 중...';
+    try { const g = await generate('출근하는 중이야', 'ko'); $('api-status').textContent = `연결됨. 예시: ${g.sentences[0].en}`; }
+    catch (e) { $('api-status').textContent = failMessage(e); }
+    renderEnv();
+  });
+  $('api-clear').addEventListener('click', () => { try { localStorage.removeItem(KEY_STORE); } catch (e) { /* ignore */ } $('api-status').textContent = '키를 지웠습니다.'; renderEnv(); });
+
   // ---------- Lesson wiring ----------
-  $('start').addEventListener('click', () => { if (!ctl.running && voiceOK()) runSession(); });
+  $('start').addEventListener('click', () => { if (!ctl.running && voiceOK()) runSession('lesson'); });
   $('speed').value = String(data.settings.speed);
   $('speed').addEventListener('change', e => { data.settings.speed = Number(e.target.value); save(); });
 
   function renderPlan() {
     const day = C.today();
-    const p = C.planSession(data.states, day);
+    const p = plan(day);
     const box = $('plan'); box.textContent = '';
     const h = document.createElement('h2'); h.textContent = '오늘의 수업 계획'; box.append(h);
     const ol = document.createElement('ol');
@@ -589,7 +749,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     li('연결 말하기', p.story.length ? `${p.story.length}문장 이어 말하기` : '핵심 문장 2개가 복습 단계에 오르면 시작');
     li('마무리 재확인', '오늘 통과한 문장을 한 번 더');
     box.append(ol);
-    const next = p.fresh || p.review[0] || byId.c1;
+    const next = p.fresh || p.review[0] || byId('c1');
     showSentence(next, 'repeat');
   }
 
@@ -636,10 +796,10 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     );
     v.append(section('지표', metrics));
 
-    const rows = C.SENTENCES.map(s => {
+    const rows = allSentences().map(s => {
       const st = stateOf(s.id);
       const p = document.createElement('span'); p.className = 'pill ' + st.level; p.textContent = LEVEL[st.level];
-      return [{ nowrap: s.type === 'core' ? `핵심 ${s.order}` : '확장' }, s.en, p, { num: st.next || '—' }];
+      return [{ nowrap: s.type === 'core' ? `핵심 ${s.order}` : s.type === 'mine' ? '내 문장' : '확장' }, s.en, p, { num: st.next || '—' }];
     });
     v.append(section('문장별 상태', table(['구분', '문장', '단계', '다음 복습'], rows)));
 
@@ -675,6 +835,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
   $('tab-lesson').addEventListener('click', () => tab('lesson'));
   $('tab-records').addEventListener('click', () => tab('records'));
 
-  renderEnv(); renderPlan(); renderRecords(); setStatus('idle');
+  renderEnv(); renderVoices(); renderPlan(); renderRecords(); setStatus('idle');
+  if (apiKey()) $('api-status').textContent = '저장된 키가 있습니다.';
 })();
 </script>

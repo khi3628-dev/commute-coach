@@ -127,3 +127,32 @@ test('복습은 최대 4개, 오래된 것부터', () => {
   const p = C.planSession(states, '2026-10-08');
   assert.deepEqual(p.review.map(s => s.id), ['c2', 'c4', 'c1', 'c3']);
 });
+
+test('내 문장도 복습 계획에 들어감 (연결 말하기에는 제외)', () => {
+  const mine = { id: 'u1', type: 'mine', en: 'I met up with a friend after work.', ko: '퇴근하고 친구 만났어.', grammar: '과거', variants: [] };
+  const states = { u1: { ...C.newState(), level: 'review', step: 0, next: '2026-10-08' } };
+  const p = C.planSession(states, '2026-10-08', { extra: [mine] });
+  assert.deepEqual(p.review.map(s => s.id), ['u1']);
+  assert.equal(p.story.length, 0);
+  assert.equal(C.planSession(states, '2026-10-08').review.length, 0, 'extra 없으면 무시');
+});
+
+test('문장 생성 요청: 기본 모델, JSON 스키마, 입력 문장 포함', () => {
+  const body = C.sentenceRequest('퇴근하고 헬스장 갔어', 'ko', ["I'm heading to work."]);
+  assert.equal(body.model, 'claude-opus-5-5');
+  assert.equal(body.output_config.format.type, 'json_schema');
+  assert.equal(body.fallbacks, 'default');
+  assert.match(body.messages[0].content, /퇴근하고 헬스장 갔어/);
+  assert.match(body.messages[0].content, /in Korean/);
+  assert.match(C.sentenceRequest('I go gym', 'en', []).messages[0].content, /in English/);
+});
+
+test('문장 생성 응답 검증', () => {
+  const ok = { type: 'message', stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ feedback: "Here's how you can say that.", sentences: [{ en: 'I went to the gym after work.', ko: '퇴근하고 헬스장 갔어.', grammar: '과거시제' }, { en: '헬스장', ko: 'x', grammar: 'x' }, { en: 'A', ko: '', grammar: '' }, { en: 'B', ko: '', grammar: '' }] }) }] };
+  const r = C.parseSentenceResponse(ok);
+  assert.equal(r.sentences.length, 2, '한글 문장은 버리고 최대 2개');
+  assert.equal(r.sentences[0].en, 'I went to the gym after work.');
+  assert.throws(() => C.parseSentenceResponse({ stop_reason: 'refusal', content: [] }), /refused/);
+  assert.throws(() => C.parseSentenceResponse({ type: 'error', error: { message: 'invalid x-api-key' } }), /invalid x-api-key/);
+  assert.throws(() => C.parseSentenceResponse({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"feedback":"","sentences":[]}' }] }), /no usable/);
+});

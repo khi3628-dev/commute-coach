@@ -48,7 +48,7 @@ const store = () => page.evaluate(() => JSON.parse(localStorage.getItem('commute
 await page.goto(url);
 assert.match(await page.textContent('#plan'), /I'm heading to work\./);
 await page.click('#start');
-assert.equal(await page.locator('#view-lesson input, #view-lesson textarea').count(), 0, 'no text box');
+assert.equal(await page.locator('#view-lesson input:not([disabled]), #view-lesson textarea:not([disabled])').count(), 0, 'no usable text box during the lesson');
 assert.equal(await page.isDisabled('#start'), true, 'start is locked during the lesson');
 await answer('I heading for work');                  // fix
 await page.waitForFunction(() => window.__said.some(t => t.startsWith('Almost.')));
@@ -135,11 +135,56 @@ assert.equal((await store()).sessions[4].end, 'mic');
 assert.equal(await page.isDisabled('#start'), true);
 assert.match(await page.textContent('#env'), /음성 인식을 쓸 수 없어/);
 
+// ---- 내 문장 만들기: Korean description → Claude (mocked) → drill → recheck ----
+await page.evaluate(() => { window.__deny = false; localStorage.setItem('commute-coach.apikey', 'sk-ant-test'); });
+let apiCalls = [];
+await page.route('https://api.anthropic.com/v1/messages', async route => {
+  const req = route.request();
+  apiCalls.push({ headers: req.headers(), body: JSON.parse(req.postData()) });
+  if (req.headers()['x-api-key'] === 'bad') return route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }) });
+  await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({
+    type: 'message', stop_reason: 'end_turn',
+    content: [{ type: 'text', text: JSON.stringify({ feedback: "Here's how you can say that.", sentences: [{ en: 'I went to the gym after work.', ko: '퇴근하고 헬스장 갔어.', grammar: '과거시제 · after work' }] }) }],
+  }) });
+});
+await page.reload();
+assert.match(await page.textContent('#env'), /Claude 연결됨/);
+await page.click('#mine-ko');
+await page.waitForFunction(() => window.__said.some(t => t.includes('한국어로 말해 주세요')));
+await answer('퇴근하고 헬스장 갔어');
+await page.waitForFunction(() => window.__said.includes('I went to the gym after work.'));
+await answer('I went to the gym after work');
+await page.waitForFunction(() => window.__said.some(t => t.includes('하나 더 만들까요')));
+await answer('그만');
+await page.waitForFunction(() => window.__said.includes('Before we finish, one more time.'));
+await answer('I went to the gym after work.');
+await page.waitForFunction(() => JSON.parse(localStorage.getItem('commute-coach.v1')).sessions.length === 6);
+d = await store();
+assert.equal(d.custom.length, 1);
+assert.equal(d.custom[0].type, 'mine');
+assert.equal(d.states[d.custom[0].id].level, 'review', 'passed drill + recheck → review');
+assert.equal(d.sessions[5].mode, 'mine-ko');
+assert.equal(apiCalls.length, 1);
+assert.equal(apiCalls[0].headers['x-api-key'], 'sk-ant-test');
+assert.equal(apiCalls[0].headers['anthropic-dangerous-direct-browser-access'], 'true');
+assert.match(apiCalls[0].body.messages[0].content, /퇴근하고 헬스장 갔어/);
+assert.ok(!JSON.stringify(d).includes('sk-ant-test'), 'API key is not in the backup data');
+
+// wrong key → spoken Korean error, no sentence added
+await page.evaluate(() => localStorage.setItem('commute-coach.apikey', 'bad'));
+await page.click('#mine-ko');
+await page.waitForFunction(() => window.__said.filter(t => t.includes('한국어로 말해 주세요')).length >= 2);
+await answer('오늘 회의가 길었어');
+await page.waitForFunction(() => window.__said.some(t => t.includes('API 키가 맞지 않아요')));
+await page.waitForFunction(() => JSON.parse(localStorage.getItem('commute-coach.v1')).sessions.length === 7);
+assert.equal((await store()).custom.length, 1);
+
 // ---- Records tab renders the metrics ----
 await page.click('#tab-records');
 const rec = await page.textContent('#view-records');
 assert.match(rec, /Coherence/); assert.match(rec, /3\/3/); assert.match(rec, /전치사/);
 assert.match(rec, /Pronunciation미측정/);
+assert.match(rec, /내 문장/); assert.match(rec, /I went to the gym after work\./);
 
 await page.setViewportSize({ width: 390, height: 844 });
 const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
