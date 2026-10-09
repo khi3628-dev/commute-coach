@@ -120,31 +120,29 @@
       }
       const score = n ? L[n][m] / n : 0;
       const found = score >= 0.8;
-      if (found) {
-        let i = n, j = m, last = -1;
-        while (i > 0 && j > 0) {
-          if (want[i - 1] === slice[j - 1]) { if (last < 0) last = j - 1; i--; j--; }
-          else if (L[i - 1][j] >= L[i][j - 1]) i--; else j--;
-        }
-        cursor += last + 1;
-      }
+      // Advance past the earliest point where the best match is complete, so a word that
+      // repeats in a later sentence ("headed to work" … "After work") is not borrowed from it.
+      if (found) cursor += L[n].findIndex(v => v === L[n][m]);
       return { id: t.id, found, score };
     });
   }
 
   // ---------- Commands (운전 모드 음성 명령) ----------
+  // A command is the whole utterance, never a word inside an answer
+  // (so "일 끝나고 헬스장 갔어" or "다음 주에 회의 있어" are answers, not commands).
+  const COMMANDS = [
+    ['resume', /^(resume|continue|go on|ready|i'm ready|i am ready|계속|계속해|계속하자|다시 시작)$/],
+    ['again', /^(again|repeat|one more time|say it again|다시|다시 해 ?줘|한 번 더)$/],
+    ['slower', /^(slower|slow down|more slowly|천천히|천천히 해 ?줘|천천히 말해 ?줘)$/],
+    ['skip', /^(skip|next|skip it|넘어가|넘어가자|넘어가 ?줘|다음|다음 거)$/],
+    ['pause', /^(pause|wait|hold on|잠깐|잠깐만|멈춰)$/],
+    ['meaning', /^(what does it mean|meaning|what's that mean|what is that mean|무슨 뜻|무슨 뜻이야|뜻이 뭐야|뜻)$/],
+    ['stop', /^(stop|end|finish|that's it|that is it|그만|그만하자|그만해|끝|끝내자)$/],
+  ];
   function parseCommand(text) {
-    const raw = String(text || '').trim().toLowerCase();
-    if (!raw) return null;
-    if (raw.split(/\s+/).length > 4) return null;
-    const t = raw.replace(/[.!?,]/g, '');
-    if (/^(again|repeat|one more time|say it again)$|다시/.test(t)) return 'again';
-    if (/^(slower|slow down|more slowly)$|천천히/.test(t)) return 'slower';
-    if (/^(skip|next|skip it)$|넘어가|다음/.test(t)) return 'skip';
-    if (/^(pause|wait|hold on)$|잠깐|멈춰/.test(t)) return 'pause';
-    if (/^(resume|continue|go on|ready|i'm ready)$|계속|다시 시작/.test(t)) return 'resume';
-    if (/^(what does it mean|meaning|what's that mean)$|무슨 뜻|뜻이 뭐/.test(t)) return 'meaning';
-    if (/^(stop|end|finish|that's it)$|그만|끝/.test(t)) return 'stop';
+    const t = String(text || '').trim().toLowerCase().replace(/[.!?,~]/g, '').replace(/\s+/g, ' ').trim();
+    if (!t) return null;
+    for (const [cmd, re] of COMMANDS) if (re.test(t)) return cmd;
     return null;
   }
 
@@ -231,12 +229,39 @@
     return { review, fresh, story: cores.slice(0, storyLen) };
   }
 
-  // ---------- 내 문장 만들기: Claude 요청과 응답 검증 ----------
-  const SENTENCE_SCHEMA = {
+  // ---------- 오늘 이야기 인터뷰: 질문, Claude 요청과 응답 검증 ----------
+  const QUESTIONS = {
+    morning: [
+      { en: 'How did your morning start?', ko: '아침은 어떻게 시작했어요?' },
+      { en: "How's your commute today?", ko: '오늘 출근길은 어때요?' },
+      { en: "What's the first thing you'll do at work?", ko: '회사에서 제일 먼저 뭘 할 거예요?' },
+      { en: 'What are your plans after work?', ko: '퇴근 후엔 뭐 할 거예요?' },
+    ],
+    day: [
+      { en: "How's your day going so far?", ko: '오늘 하루 지금까지 어때요?' },
+      { en: 'What did you have for lunch?', ko: '점심은 뭐 먹었어요?' },
+      { en: 'What are you working on this afternoon?', ko: '오후에는 무슨 일을 해요?' },
+      { en: 'What are your plans after work?', ko: '퇴근 후엔 뭐 할 거예요?' },
+    ],
+    evening: [
+      { en: 'How was your day?', ko: '오늘 하루 어땠어요?' },
+      { en: 'What was the busiest part of your day?', ko: '오늘 제일 바빴던 일은 뭐였어요?' },
+      { en: 'Did anything good happen today?', ko: '오늘 좋은 일 있었어요?' },
+      { en: 'What are you doing tonight?', ko: '오늘 저녁엔 뭐 해요?' },
+    ],
+  };
+  function interviewQuestions(hour) {
+    if (hour >= 5 && hour < 12) return QUESTIONS.morning;
+    if (hour >= 12 && hour < 17) return QUESTIONS.day;
+    return QUESTIONS.evening;
+  }
+
+  const STORY_SCHEMA = {
     type: 'object',
     additionalProperties: false,
-    required: ['sentences', 'feedback'],
+    required: ['title', 'feedback', 'sentences'],
     properties: {
+      title: { type: 'string' },
       feedback: { type: 'string' },
       sentences: {
         type: 'array',
@@ -250,36 +275,43 @@
     },
   };
 
-  // lang: 'ko' (the learner described it in Korean) or 'en' (the learner tried in English)
-  function sentencePrompt(text, lang, known) {
+  // answers: [{q, a}] from the interview. lang: 'ko' (answered in Korean) or 'en' (tried in English)
+  function storyPrompt(answers, lang, known) {
     return [
       'You are an American English speaking coach for a Korean adult who practices out loud while commuting.',
+      'You just asked the learner a few questions about their day. Their answers are speech-to-text,',
       lang === 'ko'
-        ? 'The learner described something from their own day in Korean (speech-to-text, may have recognition errors).'
-        : 'The learner tried to say something from their own day in English (speech-to-text, so ignore punctuation and capitalization).',
-      `Learner said: "${text}"`,
-      'Turn it into 1 or 2 short sentences the learner would actually say in casual spoken American English.',
-      'Rules: first person; keep the learner\'s meaning and details; at most 12 words per sentence; everyday words; contractions are fine; no idioms the learner did not imply.',
-      `Sentences the learner already knows (reuse their patterns when they fit): ${JSON.stringify(known.slice(0, 20))}`,
-      'For each sentence give: en (the sentence), ko (natural Korean meaning), grammar (one short Korean label for the key point, e.g. "과거시형 · met up with").',
+        ? 'given in Korean, and may contain recognition errors.'
+        : 'given in English by the learner, so ignore punctuation and capitalization and expect grammar mistakes.',
+      `Interview: ${JSON.stringify(answers)}`,
+      "Write the learner's own short story of today that they will memorize and say out loud.",
+      'Rules:',
+      '- First person, casual spoken American English, everyday words, contractions are fine.',
+      '- 2 to 5 sentences in total, in the order things happen in the day; one sentence per answer, two only when an answer has two separate events.',
+      '- At most 12 words per sentence.',
+      '- Start later sentences with a natural link when it fits (Then, After that, So, But, Later).',
+      '- Keep the learner\'s facts and details. Do not invent events, people, places or feelings. Skip answers that are empty or unclear.',
+      '- If only one answer is usable, write 1 or 2 sentences.',
+      `- Sentences the learner already knows (reuse their patterns when they fit): ${JSON.stringify(known.slice(0, 20))}`,
+      'Fields: title (an English title of at most 5 words); for each sentence: en, ko (natural Korean meaning), grammar (one short Korean label for the key point, e.g. "과거시제 · met up with");',
       lang === 'ko'
-        ? 'feedback: one short English sentence the teacher says before the drill, like "Here\'s how you can say that."'
-        : 'feedback: one short English sentence that names the most important fix in the learner\'s attempt, or "That was close. Here\'s a natural way." if it was fine.',
+        ? 'feedback: one short English sentence the teacher says before the drill, like "Here\'s your story for today."'
+        : "feedback: one short English sentence that names the most important fix across the learner's answers, or \"Nice job. Here's a natural way to say it.\" if they were fine.",
     ].join('\n');
   }
 
-  function sentenceRequest(text, lang, known, model) {
+  function storyRequest(answers, lang, known, model) {
     return {
       model: model || 'claude-opus-5-5',
-      max_tokens: 2000,
-      output_config: { effort: 'low', format: { type: 'json_schema', schema: SENTENCE_SCHEMA } },
+      max_tokens: 3000,
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: STORY_SCHEMA } },
       fallbacks: 'default',
-      messages: [{ role: 'user', content: sentencePrompt(text, lang, known) }],
+      messages: [{ role: 'user', content: storyPrompt(answers, lang, known) }],
     };
   }
 
-  // Validate a Messages API response; returns {sentences, feedback} or throws a readable error.
-  function parseSentenceResponse(resp) {
+  // Validate a Messages API response; returns {title, feedback, sentences} or throws a readable error.
+  function parseStoryResponse(resp) {
     if (!resp || resp.type === 'error') throw new Error((resp && resp.error && resp.error.message) || 'empty response');
     if (resp.stop_reason === 'refusal') throw new Error('refused');
     if (resp.stop_reason === 'max_tokens') throw new Error('cut off');
@@ -289,12 +321,13 @@
     const sentences = (out.sentences || [])
       .map(x => ({ en: String(x.en || '').trim(), ko: String(x.ko || '').trim(), grammar: String(x.grammar || '').trim() }))
       .filter(x => x.en && !hasHangul(x.en) && x.en.split(/\s+/).length <= 16)
-      .slice(0, 2);
+      .slice(0, 5);
     if (!sentences.length) throw new Error('no usable sentence');
-    return { sentences, feedback: String(out.feedback || '').trim().slice(0, 140) };
+    const title = String(out.title || '').trim().slice(0, 60) || 'My day';
+    return { title, sentences, feedback: String(out.feedback || '').trim().slice(0, 140) };
   }
 
-  const api = { SENTENCES, sentencePrompt, sentenceRequest, parseSentenceResponse, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
+  const api = { SENTENCES, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CoachCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

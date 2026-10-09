@@ -137,22 +137,54 @@ test('내 문장도 복습 계획에 들어감 (연결 말하기에는 제외)',
   assert.equal(C.planSession(states, '2026-10-08').review.length, 0, 'extra 없으면 무시');
 });
 
-test('문장 생성 요청: 기본 모델, JSON 스키마, 입력 문장 포함', () => {
-  const body = C.sentenceRequest('퇴근하고 헬스장 갔어', 'ko', ["I'm heading to work."]);
-  assert.equal(body.model, 'claude-opus-5-5');
-  assert.equal(body.output_config.format.type, 'json_schema');
-  assert.equal(body.fallbacks, 'default');
-  assert.match(body.messages[0].content, /퇴근하고 헬스장 갔어/);
-  assert.match(body.messages[0].content, /in Korean/);
-  assert.match(C.sentenceRequest('I go gym', 'en', []).messages[0].content, /in English/);
+test('인터뷰 질문은 시간대별 4개', () => {
+  assert.equal(C.interviewQuestions(8)[0].en, 'How did your morning start?');
+  assert.equal(C.interviewQuestions(13)[1].en, 'What did you have for lunch?');
+  assert.equal(C.interviewQuestions(20)[0].en, 'How was your day?');
+  assert.equal(C.interviewQuestions(2)[0].en, 'How was your day?');
+  for (const h of [8, 13, 20]) assert.equal(C.interviewQuestions(h).length, 4);
 });
 
-test('문장 생성 응답 검증', () => {
-  const ok = { type: 'message', stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ feedback: "Here's how you can say that.", sentences: [{ en: 'I went to the gym after work.', ko: '퇴근하고 헬스장 갔어.', grammar: '과거시제' }, { en: '헬스장', ko: 'x', grammar: 'x' }, { en: 'A', ko: '', grammar: '' }, { en: 'B', ko: '', grammar: '' }] }) }] };
-  const r = C.parseSentenceResponse(ok);
-  assert.equal(r.sentences.length, 2, '한글 문장은 버리고 최대 2개');
-  assert.equal(r.sentences[0].en, 'I went to the gym after work.');
-  assert.throws(() => C.parseSentenceResponse({ stop_reason: 'refusal', content: [] }), /refused/);
-  assert.throws(() => C.parseSentenceResponse({ type: 'error', error: { message: 'invalid x-api-key' } }), /invalid x-api-key/);
-  assert.throws(() => C.parseSentenceResponse({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"feedback":"","sentences":[]}' }] }), /no usable/);
+test('이야기 생성 요청: 기본 모델, JSON 스키마, 인터뷰 답 포함', () => {
+  const answers = [{ q: 'How was your day?', a: '회의가 길었어' }, { q: 'What are you doing tonight?', a: '헬스장 갈 거야' }];
+  const body = C.storyRequest(answers, 'ko', ["I'm heading to work."]);
+  assert.equal(body.model, 'claude-opus-5-5');
+  assert.equal(body.output_config.format.type, 'json_schema');
+  assert.deepEqual(body.output_config.format.schema.required, ['title', 'feedback', 'sentences']);
+  assert.equal(body.fallbacks, 'default');
+  assert.match(body.messages[0].content, /회의가 길었어/);
+  assert.match(body.messages[0].content, /헬스장 갈 거야/);
+  assert.match(body.messages[0].content, /given in Korean/);
+  assert.match(C.storyRequest(answers, 'en', []).messages[0].content, /given in English/);
+});
+
+test('이야기 생성 응답 검증', () => {
+  const sent = (en) => ({ en, ko: 'k', grammar: 'g' });
+  const ok = { type: 'message', stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ title: 'A Long Day', feedback: "Here's your story for today.", sentences: [sent('I had a long meeting today.'), sent('회의'), sent('Then I went to the gym.'), sent('A.'), sent('B.'), sent('C.'), sent('D.')] }) }] };
+  const r = C.parseStoryResponse(ok);
+  assert.equal(r.title, 'A Long Day');
+  assert.equal(r.sentences.length, 5, '한글 문장은 버리고 최대 5개');
+  assert.equal(r.sentences[1].en, 'Then I went to the gym.');
+  assert.throws(() => C.parseStoryResponse({ stop_reason: 'refusal', content: [] }), /refused/);
+  assert.throws(() => C.parseStoryResponse({ type: 'error', error: { message: 'invalid x-api-key' } }), /invalid x-api-key/);
+  assert.throws(() => C.parseStoryResponse({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"title":"","feedback":"","sentences":[]}' }] }), /no usable/);
+});
+
+test('명령어는 발화 전체가 명령일 때만', () => {
+  assert.equal(C.parseCommand('일 끝나고 헬스장 갔어'), null);
+  assert.equal(C.parseCommand('다음 주에 회의 있어'), null);
+  assert.equal(C.parseCommand('다시 시작'), 'resume');
+  assert.equal(C.parseCommand('넘어가.'), 'skip');
+  assert.equal(C.parseCommand('그만'), 'stop');
+  assert.equal(C.parseCommand("That's it."), 'stop');
+});
+
+test('연결 말하기: 같은 단어가 뒤 문장에 다시 나와도 순서대로 찾음', () => {
+  const t = [
+    { id: 'a', en: 'I grabbed a coffee and headed to work.' },
+    { id: 'b', en: 'I had a long meeting today.' },
+    { id: 'c', en: 'After work, I went to the gym.' },
+  ];
+  const r = C.storyMatch(t, 'I grabbed a coffee and headed to work. I had a long meeting today. After work, I went to the gym.');
+  assert.deepEqual(r.map(x => x.found), [true, true, true]);
 });

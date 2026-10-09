@@ -160,11 +160,11 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
       <button class="btn big" id="drive-start" type="button">운전 모드로 시작</button>
     </div>
     <div class="card mine">
-      <h2>내 문장 만들기</h2>
-      <p class="empty">오늘 있었던 일을 말하면 Claude가 자연스러운 영어 문장으로 만들어 주고, 바로 따라 말하기 연습을 한 뒤 복습 목록에 넣습니다. 누르고 나면 모두 말로 진행합니다.</p>
+      <h2>오늘 이야기 레슨</h2>
+      <p class="empty">선생님이 오늘 하루에 대해 4가지를 묻습니다. 답을 모아 Claude가 '오늘의 내 이야기'(2~5문장)를 영어로 만들고, 한 문장씩 연습한 뒤 처음부터 이어 말하기까지 합니다. 누르고 나면 모두 말로 진행합니다. 질문 넘기기는 "넘어가", 끝내기는 "그만".</p>
       <div class="row">
-        <button class="btn primary" id="mine-ko" type="button">한국어로 말하기</button>
-        <button class="btn" id="mine-en" type="button">영어로 말해 보기</button>
+        <button class="btn primary" id="mine-ko" type="button">인터뷰 시작 · 한국어로 답하기</button>
+        <button class="btn" id="mine-en" type="button">영어로 답하기</button>
       </div>
     </div>
 
@@ -180,7 +180,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     <p class="empty" id="voice-hint"></p>
 
     <details class="card" id="ai">
-      <summary>Claude 연결 (내 문장 만들기용)</summary>
+      <summary>Claude 연결 (오늘 이야기 레슨용)</summary>
       <p class="empty">Anthropic API 키를 넣으면 이 iPhone의 브라우저에만 저장됩니다. 기록 백업에는 포함되지 않습니다.</p>
       <div class="row">
         <input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-..." aria-label="API 키">
@@ -216,7 +216,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
 
   // ---------- Storage (기기 내 저장) ----------
   const KEY = 'commute-coach.v1';
-  function blank() { return { states: {}, attempts: [], sessions: [], learned: {}, errors: {}, custom: [], settings: { speed: 1, voice: '' } }; }
+  function blank() { return { states: {}, attempts: [], sessions: [], learned: {}, errors: {}, custom: [], stories: [], settings: { speed: 1, voice: '' } }; }
   let data = blank();
   try { const raw = localStorage.getItem(KEY); if (raw) data = { ...blank(), ...JSON.parse(raw) }; } catch (e) { /* storage unavailable */ }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { /* ignore */ } }
@@ -240,7 +240,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     const line = (b, t) => { const d = document.createElement('div'); const s = document.createElement('b'); s.textContent = b; d.append(s, ' ' + t); env.append(d); };
     if (voiceOK()) line('음성 전용 수업.', '시작한 뒤에는 답과 명령을 모두 말로 합니다. 처음 시작할 때 마이크 권한을 허용하세요.');
     else line('이 화면에서는 음성 인식을 쓸 수 없어 수업을 시작할 수 없습니다.', 'iPhone Safari로 HTTPS 주소를 열어 주세요. 기록 탭은 볼 수 있습니다.');
-    line(apiKey() ? 'Claude 연결됨.' : 'Claude 미연결.', apiKey() ? '"내 문장 만들기"를 쓸 수 있습니다.' : '"내 문장 만들기"를 쓰려면 아래 Claude 연결에 API 키를 넣으세요.');
+    line(apiKey() ? 'Claude 연결됨.' : 'Claude 미연결.', apiKey() ? '"오늘 이야기 레슨"을 쓸 수 있습니다.' : '"오늘 이야기 레슨"을 쓰려면 아래 Claude 연결에 API 키를 넣으세요.');
     if (!ctl.running) { for (const id of ['start', 'drive-start', 'mine-ko', 'mine-en']) $(id).disabled = !voiceOK(); }
   }
 
@@ -500,7 +500,8 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     if (r && r.text) { const j = C.judge(s, r.text, data.learned); logAttempt(s, 'split', 'repeat', r, j); showSaid(r.text, j); await say(j.verdict === 'pass' ? 'Much better.' : "We'll keep working on it."); }
   }
 
-  async function story(list) {
+  async function story(list, opt) {
+    const o = { start: 'Tell me your morning, from heading to work.', koLine: '출근부터 순서대로 이어서 말하기', ...opt };
     const n = list.length;
     setPhase('연결 말하기', 'FULL STORY', 0, 0);
     await say(`Ready for the story? ${n} sentences. Say yes, or skip.`);
@@ -509,10 +510,10 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     if (c === 'stop') throw new Stop();
     if (!ok || c === 'skip' || /\b(no|nope|later)\b|아니/.test((ok.text || '').toLowerCase())) { await say('Okay, next time.'); return null; }
     $('s-tag').textContent = `STORY · ${n} SENTENCES`;
-    $('s-en').textContent = list.map(s => s.ko).join(' → '); $('s-en').classList.add('hidden-en'); $('s-ko').textContent = '출근부터 순서대로 이어서 말하기';
+    $('s-en').textContent = list.map(s => s.ko).join(' → '); $('s-en').classList.add('hidden-en'); $('s-ko').textContent = o.koLine;
     let result = null;
     for (let round = 0; round < 2; round++) {
-      await say(round ? 'One more time, from the start.' : 'Tell me your morning, from heading to work.');
+      await say(round ? 'One more time, from the start.' : o.start);
       const r = await hear({ long: true, timeout: 10000 });
       await checkpoint();
       if (!r || !r.text) { await say("Let's try it another day."); break; }
@@ -641,7 +642,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
   const KEY_STORE = 'commute-coach.apikey'; // kept apart so the backup copy never includes it
   function apiKey() { try { return localStorage.getItem(KEY_STORE) || ''; } catch (e) { return ''; } }
 
-  async function generate(text, lang) {
+  async function generateStory(answers, lang) {
     const known = allSentences().map(s => s.en);
     const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 30000);
     let res;
@@ -655,57 +656,97 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
           'anthropic-beta': 'server-side-fallback-2026-07-01',
           'anthropic-dangerous-direct-browser-access': 'true',
         },
-        body: JSON.stringify(C.sentenceRequest(text, lang, known)),
+        body: JSON.stringify(C.storyRequest(answers, lang, known)),
       });
     } catch (e) { const err = new Error('network'); err.code = 'network'; throw err; }
     finally { clearTimeout(t); }
     const body = await res.json().catch(() => null);
     if (!res.ok) { const err = new Error((body && body.error && body.error.message) || 'HTTP ' + res.status); err.code = res.status; throw err; }
-    return C.parseSentenceResponse(body);
+    return C.parseStoryResponse(body);
   }
   function failMessage(e) {
     if (e.code === 401 || e.code === 403) return 'API 키가 맞지 않아요. 설정에서 다시 확인해 주세요.';
     if (e.code === 429) return '요청이 많아서 잠시 막혔어요. 조금 뒤에 다시 해요.';
     if (e.code === 'network') return '인터넷 연결이 불안정해요. 나중에 다시 해요.';
     if (e.code === 400 && /credit|balance/i.test(e.message)) return 'API 크레딧이 부족해요. 결제 설정을 확인해 주세요.';
-    return '문장을 만들지 못했어요. 나중에 다시 해요.';
+    return '이야기를 만들지 못했어요. 나중에 다시 해요.';
   }
-  function addMine(g, source, day) {
+  function addMine(g, source, day, storyId) {
     const same = allSentences().find(s => C.norm(s.en).join(' ') === C.norm(g.en).join(' '));
     if (same) return same;
-    const s = { id: 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), type: 'mine', en: g.en, ko: g.ko, grammar: g.grammar || '내 문장', variants: [], source, created: day, provenance: 'teacher_suggested' };
+    const s = { id: 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), type: 'mine', en: g.en, ko: g.ko, grammar: g.grammar || '내 문장', variants: [], source, created: day, storyId, provenance: 'teacher_suggested' };
     data.custom.push(s); save();
     return s;
   }
 
+  const ACKS = ['Got it.', 'Okay.', 'I see.', 'Nice.', 'Sounds good.'];
+
+  // 오늘 이야기 레슨: interview → one Claude call → drill each sentence → whole story → last check
   async function mineFlow(lang, sess, day) {
-    setPhase('내 문장 만들기', 'MY SENTENCE', 0, 0);
+    const recLang = lang === 'ko' ? 'ko-KR' : 'en-US';
+    setPhase('오늘 이야기 인터뷰', 'INTERVIEW', 0, 0);
     if (!apiKey()) { await sayKo('Claude 연결이 필요해요. 설정에서 API 키를 넣어 주세요.'); return; }
-    const passed = [];
-    for (let round = 0; round < 3; round++) {
+    if (lang === 'ko') await sayKo('오늘 하루에 대해 네 가지를 물어볼게요. 한국어로 편하게 답하세요. 넘기려면 넘어가, 끝내려면 그만이라고 하세요.');
+    else await say("I'll ask you four questions about your day. Answer in English. Mistakes are fine. Say skip or stop anytime.");
+
+    const qs = C.interviewQuestions(new Date().getHours());
+    const answers = [];
+    let silent = 0;
+    for (let i = 0; i < qs.length; i++) {
       await checkpoint();
-      if (lang === 'ko') await sayKo(round ? '하나 더 만들까요? 다른 이야기를 말하거나, 그만이라고 말해 주세요.' : '오늘 있었던 일이나 하고 싶은 말을 한국어로 말해 주세요.');
-      else await say(round ? 'Another one? Tell me something else, or say stop.' : 'Tell me about your day in English. Mistakes are fine.');
-      const r = await hear({ long: true, timeout: 12000, lang: lang === 'ko' ? 'ko-KR' : 'en-US' });
+      const q = qs[i];
+      setPhase('오늘 이야기 인터뷰', 'INTERVIEW', i + 1, qs.length);
+      $('s-tag').textContent = `INTERVIEW ${i + 1}/${qs.length}`;
+      $('s-en').textContent = q.en; $('s-en').classList.remove('hidden-en'); $('s-ko').textContent = q.ko;
+      await say(q.en);
+      if (lang === 'ko') await sayKo(q.ko);
+      const r = await hear({ long: true, timeout: 12000, lang: recLang });
       await checkpoint();
-      if (!r || !r.text) { await sayKo('잘 안 들렸어요. 다음에 다시 해요.'); break; }
-      const c = C.parseCommand(r.text);
-      if (c === 'stop') { if (round) break; throw new Stop(); }
-      if (c === 'skip') break;
-      showSaid(r.text, null);
-      await sayKo('잠깐만요, 문장을 만들고 있어요.');
-      let gen;
-      try { gen = await generate(r.text, lang); } catch (e) { await sayKo(failMessage(e)); break; }
-      data.attempts.push({ t: new Date().toISOString(), day, sid: 'mine', kind: 'mine', text: r.text, via: r.via, latency: r.latency, verdict: 'source' });
-      await checkpoint();
-      await say(gen.feedback || "Here's how you can say that.");
-      for (const g of gen.sentences) {
-        const s = addMine(g, r.text, day);
-        const res = await drill(s, 'repeat', 'learn');
-        data.states[s.id] = C.updateState(stateOf(s.id), 'learn', res, day);
-        sess.results.push({ sid: s.id, kind: 'learn', ...res }); sess.learned = s.id; save();
-        if (res.passed && !passed.includes(s)) passed.push(s);
+      if (!r || !r.text) {
+        if (++silent >= 2) break;
+        if (lang === 'ko') await sayKo('괜찮아요, 다음 질문으로 갈게요.'); else await say("That's okay. Next question.");
+        continue;
       }
+      silent = 0;
+      const c = C.parseCommand(r.text);
+      if (c === 'stop') break;
+      if (c === 'skip') continue;
+      if (c === 'pause') { await pauseFlow(); i--; continue; }
+      if (c === 'again') { i--; continue; }
+      showSaid(r.text, null);
+      answers.push({ q: q.en, a: r.text.trim() });
+      data.attempts.push({ t: new Date().toISOString(), day, sid: 'interview', kind: 'interview', text: r.text, via: r.via, latency: r.latency, verdict: 'source' });
+      save();
+      if (i < qs.length - 1) await say(ACKS[i % ACKS.length]);
+    }
+    if (!answers.length) { await sayKo('답이 없어서 이번엔 이야기를 만들지 않을게요.'); return; }
+
+    setPhase('이야기 만드는 중', 'WRITING', 0, 0);
+    await sayKo('잠깐만요, 오늘 이야기를 영어로 만들고 있어요.');
+    let gen;
+    try { gen = await generateStory(answers, lang); } catch (e) { await sayKo(failMessage(e)); return; }
+    await checkpoint();
+
+    const storyId = 's' + Date.now().toString(36);
+    const list = gen.sentences.map(g => addMine(g, answers.map(x => x.a).join(' / '), day, storyId));
+    data.stories.push({ id: storyId, day, lang, title: gen.title, ids: list.map(x => x.id), answers });
+    sess.storyId = storyId; save();
+
+    await say(gen.feedback || "Here's your story for today.");
+    await say(list.length > 1 ? `Your story has ${list.length} sentences. Let's practice them one by one.` : "Let's practice it.");
+    const passed = [];
+    for (let i = 0; i < list.length; i++) {
+      await checkpoint();
+      setPhase('내 이야기 연습', 'MY STORY', i + 1, list.length);
+      const s = list[i];
+      const res = await drill(s, 'repeat', 'learn');
+      data.states[s.id] = C.updateState(stateOf(s.id), 'learn', res, day);
+      sess.results.push({ sid: s.id, kind: 'learn', ...res }); sess.learned = s.id; save();
+      if (res.passed) passed.push(s);
+    }
+    if (list.length >= 2) {
+      await checkpoint();
+      sess.story = await story(list, { start: 'Now tell me your whole story, from the beginning.', koLine: '내 이야기를 처음부터 이어서 말하기' });
     }
     for (const s of passed.slice(0, 2)) {
       await checkpoint();
@@ -726,7 +767,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     if (!k) { $('api-status').textContent = '키를 입력해 주세요.'; return; }
     try { localStorage.setItem(KEY_STORE, k); } catch (e) { $('api-status').textContent = '이 브라우저에 저장할 수 없습니다.'; return; }
     $('api-key').value = ''; $('api-status').textContent = '확인 중...';
-    try { const g = await generate('출근하는 중이야', 'ko'); $('api-status').textContent = `연결됨. 예시: ${g.sentences[0].en}`; }
+    try { const g = await generateStory([{ q: 'How did your morning start?', a: '커피 마시고 출근했어' }], 'ko'); $('api-status').textContent = `연결됨. 예시: ${g.sentences[0].en}`; }
     catch (e) { $('api-status').textContent = failMessage(e); }
     renderEnv();
   });
@@ -803,11 +844,14 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     });
     v.append(section('문장별 상태', table(['구분', '문장', '단계', '다음 복습'], rows)));
 
+    const stories = [...data.stories].reverse().slice(0, 10);
+    if (stories.length) v.append(section('내 이야기', table(['날짜', '제목', '문장'], stories.map(st => [{ num: st.day.slice(5) }, { nowrap: st.title }, st.ids.map(id => (byId(id) || {}).en).filter(Boolean).join(' ')]))));
+
     const errs = Object.entries(data.errors).sort((a, b) => b[1].count - a[1].count);
     v.append(section('반복 오류', errs.length ? table(['유형', '횟수', '최근 예'], errs.map(([k, x]) => [{ nowrap: KIND[k] || k }, { num: String(x.count) }, x.example])) : Object.assign(document.createElement('div'), { className: 'empty', textContent: '아직 교정 기록이 없습니다.' })));
 
     const recent = A.slice(-12).reverse();
-    v.append(section('최근 발화', recent.length ? table(['날짜', '말한 문장', '판정'], recent.map(a => [{ num: a.day.slice(5) }, a.text, { nowrap: { pass: '통과', fix: '교정', korean: '한국어' }[a.verdict] || a.verdict }])) : Object.assign(document.createElement('div'), { className: 'empty', textContent: '첫 수업을 시작하면 여기에 쌓입니다.' })));
+    v.append(section('최근 발화', recent.length ? table(['날짜', '말한 문장', '판정'], recent.map(a => [{ num: a.day.slice(5) }, a.text, { nowrap: { pass: '통과', fix: '교정', korean: '한국어', source: '인터뷰 답' }[a.verdict] || a.verdict }])) : Object.assign(document.createElement('div'), { className: 'empty', textContent: '첫 수업을 시작하면 여기에 쌓입니다.' })));
 
     const tools = document.createElement('div'); tools.className = 'row';
     const copy = document.createElement('button'); copy.className = 'btn'; copy.type = 'button'; copy.textContent = '기록 백업 복사';

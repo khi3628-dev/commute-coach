@@ -135,8 +135,9 @@ assert.equal((await store()).sessions[4].end, 'mic');
 assert.equal(await page.isDisabled('#start'), true);
 assert.match(await page.textContent('#env'), /음성 인식을 쓸 수 없어/);
 
-// ---- 내 문장 만들기: Korean description → Claude (mocked) → drill → recheck ----
+// ---- 오늘 이야기 레슨: interview (Korean) → Claude (mocked) → drills → whole story → last check ----
 await page.evaluate(() => { window.__deny = false; localStorage.setItem('commute-coach.apikey', 'sk-ant-test'); });
+const STORY = ['I grabbed a coffee and headed to work.', 'I had a long meeting today.', 'After work, I went to the gym.'];
 let apiCalls = [];
 await page.route('https://api.anthropic.com/v1/messages', async route => {
   const req = route.request();
@@ -144,47 +145,68 @@ await page.route('https://api.anthropic.com/v1/messages', async route => {
   if (req.headers()['x-api-key'] === 'bad') return route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }) });
   await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({
     type: 'message', stop_reason: 'end_turn',
-    content: [{ type: 'text', text: JSON.stringify({ feedback: "Here's how you can say that.", sentences: [{ en: 'I went to the gym after work.', ko: '퇴근하고 헬스장 갔어.', grammar: '과거시제 · after work' }] }) }],
+    content: [{ type: 'text', text: JSON.stringify({ title: 'A Busy Day', feedback: "Here's your story for today.", sentences: STORY.map(en => ({ en, ko: '뜻', grammar: '과거시제' })) }) }],
   }) });
 });
 await page.reload();
 assert.match(await page.textContent('#env'), /Claude 연결됨/);
+const said0 = await page.evaluate(() => window.__said.length);
 await page.click('#mine-ko');
-await page.waitForFunction(() => window.__said.some(t => t.includes('한국어로 말해 주세요')));
-await answer('퇴근하고 헬스장 갔어');
-await page.waitForFunction(() => window.__said.includes('I went to the gym after work.'));
-await answer('I went to the gym after work');
-await page.waitForFunction(() => window.__said.some(t => t.includes('하나 더 만들까요')));
-await answer('그만');
-await page.waitForFunction(() => window.__said.includes('Before we finish, one more time.'));
-await answer('I went to the gym after work.');
+await page.waitForFunction(() => document.getElementById('s-tag').textContent === 'INTERVIEW 1/4');
+await answer('아침에 커피 마시고 출근했어');
+await page.waitForFunction(() => document.getElementById('s-tag').textContent === 'INTERVIEW 2/4');
+await answer('넘어가');                                   // skip this question
+await page.waitForFunction(() => document.getElementById('s-tag').textContent === 'INTERVIEW 3/4');
+await answer('오늘 회의가 길었고 일 끝나고 헬스장 갔어');   // contains 끝 but is an answer, not "stop"
+await page.waitForFunction(() => document.getElementById('s-tag').textContent === 'INTERVIEW 4/4');
+await answer('그만');                                     // stop the interview early
+await page.waitForFunction(() => window.__said.includes('Your story has 3 sentences. Let\'s practice them one by one.'));
+for (const en of STORY) await answer(en);
+await page.waitForFunction(() => window.__said.some(t => t.startsWith('Ready for the story? 3 sentences')));
+await answer('yes');
+await page.waitForFunction(() => window.__said.includes('Now tell me your whole story, from the beginning.'));
+await answer(STORY.join(' '));
+await page.waitForFunction(() => window.__said.some(t => t.startsWith('Great story')));
+await answer(STORY[0]);                                   // last check 1 (recall)
+await answer(STORY[1]);                                   // last check 2 (recall)
 await page.waitForFunction(() => JSON.parse(localStorage.getItem('commute-coach.v1')).sessions.length === 6);
 d = await store();
-assert.equal(d.custom.length, 1);
-assert.equal(d.custom[0].type, 'mine');
-assert.equal(d.states[d.custom[0].id].level, 'review', 'passed drill + recheck → review');
 assert.equal(d.sessions[5].mode, 'mine-ko');
-assert.equal(apiCalls.length, 1);
-assert.equal(apiCalls[0].headers['x-api-key'], 'sk-ant-test');
+assert.equal(d.sessions[5].end, 'done');
+assert.equal(d.stories.length, 1);
+assert.equal(d.stories[0].title, 'A Busy Day');
+assert.equal(d.stories[0].answers.length, 2, 'skipped and stop are not answers');
+assert.equal(d.custom.length, 3);
+assert.ok(d.custom.every(c => c.storyId === d.stories[0].id));
+assert.equal(d.states[d.custom[0].id].level, 'review', 'drill + last check → review');
+assert.ok(d.states[d.custom[2].id].contexts.includes('story'));
+assert.equal(apiCalls.length, 1, 'one Claude call per interview');
+const prompt = apiCalls[0].body.messages[0].content;
+assert.match(prompt, /아침에 커피 마시고 출근했어/);
+assert.match(prompt, /일 끝나고 헬스장 갔어/);
 assert.equal(apiCalls[0].headers['anthropic-dangerous-direct-browser-access'], 'true');
-assert.match(apiCalls[0].body.messages[0].content, /퇴근하고 헬스장 갔어/);
 assert.ok(!JSON.stringify(d).includes('sk-ant-test'), 'API key is not in the backup data');
+const koSaid = await page.evaluate(n => window.__said.slice(n), said0);
+assert.ok(koSaid.some(t => /[가-힣]/.test(t) && t.includes('?')), 'Korean version of each question is spoken');
 
-// wrong key → spoken Korean error, no sentence added
+// wrong key → spoken Korean error, nothing added
 await page.evaluate(() => localStorage.setItem('commute-coach.apikey', 'bad'));
 await page.click('#mine-ko');
-await page.waitForFunction(() => window.__said.filter(t => t.includes('한국어로 말해 주세요')).length >= 2);
+await page.waitForFunction(() => document.getElementById('s-tag').textContent === 'INTERVIEW 1/4');
 await answer('오늘 회의가 길었어');
+await page.waitForFunction(() => document.getElementById('s-tag').textContent === 'INTERVIEW 2/4');
+await answer('그만');
 await page.waitForFunction(() => window.__said.some(t => t.includes('API 키가 맞지 않아요')));
 await page.waitForFunction(() => JSON.parse(localStorage.getItem('commute-coach.v1')).sessions.length === 7);
-assert.equal((await store()).custom.length, 1);
+assert.equal((await store()).custom.length, 3);
+assert.equal((await store()).stories.length, 1);
 
 // ---- Records tab renders the metrics ----
 await page.click('#tab-records');
 const rec = await page.textContent('#view-records');
 assert.match(rec, /Coherence/); assert.match(rec, /3\/3/); assert.match(rec, /전치사/);
 assert.match(rec, /Pronunciation미측정/);
-assert.match(rec, /내 문장/); assert.match(rec, /I went to the gym after work\./);
+assert.match(rec, /내 이야기/); assert.match(rec, /A Busy Day/); assert.match(rec, /After work, I went to the gym\./);
 
 await page.setViewportSize({ width: 390, height: 844 });
 const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
