@@ -201,6 +201,56 @@ await page.waitForFunction(() => JSON.parse(localStorage.getItem('commute-coach.
 assert.equal((await store()).custom.length, 3);
 assert.equal((await store()).stories.length, 1);
 
+// ---- Gemini key: same interview lesson through the Gemini API (mocked) ----
+const GEM = ['I took the subway today.', 'Then I had lunch with my team.'];
+let gemCalls = [];
+await page.route('https://generativelanguage.googleapis.com/**', async route => {
+  const req = route.request();
+  gemCalls.push({ url: req.url(), headers: req.headers(), body: JSON.parse(req.postData()) });
+  if (req.headers()['x-goog-api-key'] === 'AIzaBAD') return route.fulfill({ status: 400, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT' } }) });
+  await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({
+    candidates: [{ finishReason: 'STOP', content: { role: 'model', parts: [{ text: JSON.stringify({ title: 'Subway Day', feedback: "Here's your story for today.", sentences: GEM.map(en => ({ en, ko: '뜻', grammar: '과거시제' })) }) }] } }],
+  }) });
+});
+await page.evaluate(() => localStorage.setItem('commute-coach.apikey', 'AIzaTEST'));
+await page.reload();
+assert.match(await page.textContent('#env'), /Gemini 연결됨/);
+await page.click('#mine-ko');
+await page.waitForFunction(() => document.getElementById('s-tag').textContent === 'INTERVIEW 1/4');
+await answer('지하철 타고 왔어');
+await page.waitForFunction(() => document.getElementById('s-tag').textContent === 'INTERVIEW 2/4');
+await answer('팀이랑 점심 먹었어');
+await page.waitForFunction(() => document.getElementById('s-tag').textContent === 'INTERVIEW 3/4');
+await answer('그만');
+await page.waitForFunction(() => window.__said.includes("Your story has 2 sentences. Let's practice them one by one."));
+for (const en of GEM) await answer(en);
+await page.waitForFunction(() => window.__said.filter(t => t.startsWith('Ready for the story? 2 sentences')).length >= 1);
+await answer('skip');                                     // skip the whole-story step this time
+await answer(GEM[0]); await answer(GEM[1]);               // last check
+await page.waitForFunction(() => JSON.parse(localStorage.getItem('commute-coach.v1')).sessions.length === 8);
+d = await store();
+assert.equal(d.sessions[7].end, 'done');
+assert.equal(d.stories.length, 2);
+assert.equal(d.stories[1].title, 'Subway Day');
+assert.equal(gemCalls.length, 1);
+assert.match(gemCalls[0].url, /\/v1beta\/models\/gemini-flash-latest:generateContent$/);
+assert.equal(gemCalls[0].headers['x-goog-api-key'], 'AIzaTEST');
+assert.equal(gemCalls[0].body.generationConfig.responseMimeType, 'application/json');
+assert.match(gemCalls[0].body.contents[0].parts[0].text, /지하철 타고 왔어/);
+assert.equal(apiCalls.length, 2, 'no Anthropic call with a Gemini key');
+
+// custom model name is used; bad Gemini key → Korean error
+await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('commute-coach.v1')); d.settings.geminiModel = 'gemini-test-model'; localStorage.setItem('commute-coach.v1', JSON.stringify(d)); localStorage.setItem('commute-coach.apikey', 'AIzaBAD'); });
+await page.reload();
+await page.click('#mine-ko');
+await page.waitForFunction(() => document.getElementById('s-tag').textContent === 'INTERVIEW 1/4');
+await answer('오늘 바빴어');
+await page.waitForFunction(() => document.getElementById('s-tag').textContent === 'INTERVIEW 2/4');
+await answer('그만');
+await page.waitForFunction(() => window.__said.some(t => t.includes('API 키가 맞지 않아요')) && JSON.parse(localStorage.getItem('commute-coach.v1')).sessions.length === 9);
+assert.match(gemCalls[1].url, /models\/gemini-test-model:generateContent$/);
+assert.equal((await store()).stories.length, 2);
+
 // ---- Records tab renders the metrics ----
 await page.click('#tab-records');
 const rec = await page.textContent('#view-records');

@@ -188,3 +188,23 @@ test('연결 말하기: 같은 단어가 뒤 문장에 다시 나와도 순서�
   const r = C.storyMatch(t, 'I grabbed a coffee and headed to work. I had a long meeting today. After work, I went to the gym.');
   assert.deepEqual(r.map(x => x.found), [true, true, true]);
 });
+
+test('키 모양으로 AI 제공자 구분', () => {
+  assert.equal(C.providerOf('AIzaSyExample'), 'gemini');
+  assert.equal(C.providerOf(' sk-ant-api03-x '), 'anthropic');
+});
+
+test('Gemini 요청과 응답 검증', () => {
+  const body = C.geminiRequest([{ q: 'How was your day?', a: '회의가 길었어' }], 'ko', []);
+  assert.equal(body.generationConfig.responseMimeType, 'application/json');
+  assert.deepEqual(body.generationConfig.responseJsonSchema.required, ['title', 'feedback', 'sentences']);
+  assert.match(body.contents[0].parts[0].text, /회의가 길었어/);
+  const json = { title: 'Long Day', feedback: 'Here you go.', sentences: [{ en: 'I had a long meeting today.', ko: '오늘 회의가 길었어.', grammar: '과거시제' }] };
+  const ok = { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(json) }] } }] };
+  assert.equal(C.parseGeminiResponse(ok).sentences[0].en, 'I had a long meeting today.');
+  const fenced = { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '```json\n' + JSON.stringify(json) + '\n```' }] } }] };
+  assert.equal(C.parseGeminiResponse(fenced).title, 'Long Day');
+  assert.throws(() => C.parseGeminiResponse({ error: { code: 400, message: 'API key not valid' } }), /API key not valid/);
+  assert.throws(() => C.parseGeminiResponse({ promptFeedback: { blockReason: 'SAFETY' } }), /refused/);
+  assert.throws(() => C.parseGeminiResponse({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{' }] } }] }), /cut off/);
+});

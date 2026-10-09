@@ -317,7 +317,35 @@
     if (resp.stop_reason === 'max_tokens') throw new Error('cut off');
     const block = (resp.content || []).find(b => b.type === 'text');
     if (!block) throw new Error('no text');
-    const out = JSON.parse(block.text);
+    return parseStoryJson(block.text);
+  }
+
+  // ---------- Gemini (Google AI Studio key) ----------
+  const GEMINI_DEFAULT_MODEL = 'gemini-flash-latest';
+  const providerOf = key => (/^AIza/.test(String(key || '').trim()) ? 'gemini' : 'anthropic');
+
+  function geminiRequest(answers, lang, known) {
+    return {
+      contents: [{ role: 'user', parts: [{ text: storyPrompt(answers, lang, known) }] }],
+      generationConfig: { responseMimeType: 'application/json', responseJsonSchema: STORY_SCHEMA, maxOutputTokens: 3000 },
+    };
+  }
+
+  function parseGeminiResponse(resp) {
+    if (!resp) throw new Error('empty response');
+    if (resp.error) throw new Error(resp.error.message || 'error');
+    if (resp.promptFeedback && resp.promptFeedback.blockReason) throw new Error('refused');
+    const cand = (resp.candidates || [])[0];
+    if (!cand) throw new Error('no text');
+    if (cand.finishReason === 'SAFETY' || cand.finishReason === 'PROHIBITED_CONTENT') throw new Error('refused');
+    if (cand.finishReason === 'MAX_TOKENS') throw new Error('cut off');
+    const text = ((cand.content && cand.content.parts) || []).map(x => x.text || '').join('');
+    if (!text) throw new Error('no text');
+    return parseStoryJson(text);
+  }
+
+  function parseStoryJson(text) {
+    const out = JSON.parse(String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
     const sentences = (out.sentences || [])
       .map(x => ({ en: String(x.en || '').trim(), ko: String(x.ko || '').trim(), grammar: String(x.grammar || '').trim() }))
       .filter(x => x.en && !hasHangul(x.en) && x.en.split(/\s+/).length <= 16)
@@ -327,7 +355,7 @@
     return { title, sentences, feedback: String(out.feedback || '').trim().slice(0, 140) };
   }
 
-  const api = { SENTENCES, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
+  const api = { SENTENCES, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CoachCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
