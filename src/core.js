@@ -18,9 +18,12 @@
     { id: 'e5', type: 'ext', parent: 'c1', en: "I'm heading to the gym.", ko: '헬스장 가는 중이야.', grammar: 'heading 변형', cue: "You're going to work out. Tell me.", variants: [] },
     { id: 'e6', type: 'ext', parent: 'c1', en: "I'm heading into a meeting.", ko: '회의 들어가는 중이야.', grammar: 'heading into', cue: "You're walking into a meeting. Tell me.", variants: [] },
   ];
+  // 회화 샘플 (src/content.js): 질문 → 내 대답 102개
+  const CONTENT = typeof module !== 'undefined' && module.exports ? require('./content.js') : root.CoachContent;
+  SENTENCES.push(...CONTENT.CONVERSATIONS);
 
   // ---------- Normalization ----------
-  const NUM = { '20': 'twenty', '6': 'six', '1': 'one', '2': 'two', '3': 'three' };
+  const NUM = { '1': 'one', '2': 'two', '3': 'three', '4': 'four', '5': 'five', '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine', '10': 'ten', '11': 'eleven', '12': 'twelve', '20': 'twenty', '30': 'thirty' };
   const EQUIV = { ok: 'okay', emails: 'email', mins: 'minutes', gonna: 'going to' };
 
   function norm(s) {
@@ -220,13 +223,19 @@
       const cores = SENTENCES.filter(s => s.type === 'core').sort((a, b) => a.order - b.order);
       fresh = cores.find(s => st(s.id).level === 'new') || null;
       if (!fresh) fresh = SENTENCES.find(s => s.type === 'ext' && st(s.id).level === 'new' && st(s.parent).level !== 'new') || null;
+      if (!fresh) fresh = SENTENCES.find(s => s.type === 'conv' && st(s.id).level === 'new') || null;
     }
     // 연결 말하기: 이야기 순서대로 앞에서부터 복습 단계 이상인 핵심 문장
     const cores = SENTENCES.filter(s => s.type === 'core').sort((a, b) => a.order - b.order);
     let k = 0;
     while (k < cores.length && ['review', 'mastered'].includes(st(cores[k].id).level)) k++;
     const storyLen = k >= 6 ? 6 : k >= 3 ? 3 : k >= 2 ? 2 : 0;
-    return { review, fresh, story: cores.slice(0, storyLen) };
+    // 대화 연습: the latest conversation topic with 2+ sentences at review level or above
+    const done = s => ['review', 'mastered'].includes(st(s.id).level);
+    const convs = SENTENCES.filter(s => s.type === 'conv' && done(s));
+    const last = convs.length ? convs[convs.length - 1].module : null;
+    const dialog = last ? convs.filter(s => s.module === last) : [];
+    return { review, fresh, story: cores.slice(0, storyLen), dialog: dialog.length >= 2 ? dialog : [] };
   }
 
   // ---------- 오늘 이야기 인터뷰: 질문, Claude 요청과 응답 검증 ----------
@@ -355,7 +364,7 @@
     return { title, sentences, feedback: String(out.feedback || '').trim().slice(0, 140) };
   }
 
-  const api = { SENTENCES, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
+  const api = { SENTENCES, MODULES: CONTENT.MODULES, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CoachCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

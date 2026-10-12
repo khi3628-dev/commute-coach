@@ -4,6 +4,7 @@ A hands-free English speaking coach for the morning commute. It follows the plan
 
 ## What works now
 - Module 1: the 6 core commute sentences and 6 extension sentences, with the accepted variants from the source doc
+- Conversation samples (`src/content.js`): 102 question → my-answer pairs, 6 per topic across 17 topics (daily life 6, work 6, hobbies and travel 5). After Module 1, one new item comes per session: you hear the question and the model answer, then repeat it. In reviews you hear only the question and answer it. Once 2 or more items in a topic reach review, "conversation practice" asks that topic's questions in order.
 - Session flow: warm-up review (up to 4) → today's sentence (up to 3 tries; split practice on repeated failure) → story (2/3/6 sentences in a row) → end-of-session recheck
 - Voice only: after one tap to start, there is no text box and no on-screen buttons. Answers and commands are spoken. If the microphone is unavailable, the lesson does not start.
 - Grading: word-level comparison that accepts listed variants and contractions, spoken corrections (at most 2 per turn), and a "say it again" retry. Korean answers get the English sentence back.

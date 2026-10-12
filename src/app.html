@@ -229,7 +229,8 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
   const allSentences = () => C.SENTENCES.concat(data.custom);
   const byId = id => allSentences().find(s => s.id === id);
   const plan = day => C.planSession(data.states, day, { extra: data.custom });
-  const askMode = s => (s.type === 'ext' ? 'cue' : 'recall');
+  const askMode = s => (s.cue ? 'cue' : 'recall');
+  const kindLabel = s => (s.type === 'core' ? `핵심 ${s.order}` : s.type === 'mine' ? '내 문장' : s.type === 'conv' ? s.moduleTitleKo : '확장');
 
   // ---------- Environment ----------
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -379,7 +380,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     $('d-phase').textContent = n ? `${en} ${i}/${n}` : en;
   }
   function showSentence(s, mode) {
-    $('s-tag').textContent = `${s.type === 'core' ? 'CORE ' + s.order : s.type === 'mine' ? 'MY SENTENCE' : 'EXTENSION'} · ${s.grammar}`;
+    $('s-tag').textContent = s.type === 'conv' ? `${s.moduleTitle.toUpperCase()} · Q: ${s.cue}` : `${s.type === 'core' ? 'CORE ' + s.order : s.type === 'mine' ? 'MY SENTENCE' : 'EXTENSION'} · ${s.grammar}`;
     const en = $('s-en');
     if (mode === 'recall') { en.textContent = '영어로 말해 보세요'; en.classList.add('hidden-en'); }
     else if (mode === 'cue') { en.textContent = s.cue; en.classList.add('hidden-en'); }
@@ -433,7 +434,8 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     const max = mode === 'repeat' ? 3 : 2;
     let tries = 0, silent = 0, hinted = false, firstTry = true;
     const present = async (intro) => {
-      if (mode === 'repeat') { if (intro) await say('Listen and repeat.'); await say(s.en, { slow: true }); }
+      if (mode === 'repeat' && s.type === 'conv') { await say(s.cue); if (intro) await say('You can answer:'); await say(s.en, { slow: true }); }
+      else if (mode === 'repeat') { if (intro) await say('Listen and repeat.'); await say(s.en, { slow: true }); }
       else if (mode === 'recall') { await sayKo(s.ko); await say('In English?'); }
       else await say(s.cue);
     };
@@ -502,6 +504,40 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     await say('Now all together.'); await say(s.en, { slow: true });
     const r = await hear();
     if (r && r.text) { const j = C.judge(s, r.text, data.learned); logAttempt(s, 'split', 'repeat', r, j); showSaid(r.text, j); await say(j.verdict === 'pass' ? 'Much better.' : "We'll keep working on it."); }
+  }
+
+  // 대화 연습: the teacher asks a topic's questions in order; one try each, then the model answer
+  async function dialog(list) {
+    const n = list.length;
+    setPhase('대화 연습', 'CONVERSATION', 0, 0);
+    await say(`Let's have a quick conversation. ${list[0].moduleTitle}. Just answer my questions.`);
+    let ok = 0;
+    for (let i = 0; i < n; i++) {
+      await checkpoint();
+      const s = list[i];
+      setPhase('대화 연습', 'CONVERSATION', i + 1, n);
+      showSentence(s, 'cue');
+      await say(s.cue);
+      const r = await hear();
+      await checkpoint();
+      const c = r && C.parseCommand(r.text);
+      if (c === 'stop') throw new Stop();
+      if (c === 'pause') { await pauseFlow(); i--; continue; }
+      if (c === 'again') { i--; continue; }
+      if (!r || !r.text || c === 'skip') { await say('You can say:'); await say(s.en, { slow: true }); continue; }
+      const j = await judgeSmart(s, r.text);
+      logAttempt(s, 'dialog', 'cue', r, j);
+      showSaid(r.text, j); revealSentence(s);
+      if (j.verdict === 'pass') {
+        ok++;
+        data.states[s.id] = C.updateState(stateOf(s.id), 'story', { passed: true }, C.today()); save();
+        await say(i === n - 1 ? 'Good.' : ACKS[i % ACKS.length]);
+      } else { await say('You can say:'); await say(s.en, { slow: true }); }
+    }
+    await say(ok === n ? 'Great conversation. You answered everything.' : `Nice. You answered ${ok} of ${n} smoothly.`);
+    data.attempts.push({ t: new Date().toISOString(), day: C.today(), sid: 'dialog', kind: 'dialog-summary', text: '', verdict: ok === n ? 'pass' : 'fix', found: ok, n });
+    save();
+    return { n, found: ok };
   }
 
   async function story(list, opt) {
@@ -585,15 +621,16 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
         }
       }
 
-      // 3. 연결 말하기
-      if (plan.story.length >= 2) { await checkpoint(); sess.story = await story(plan.story); }
+      // 3. 대화 연습 (회화 샘플) or 연결 말하기 (출근 이야기)
+      if (plan.dialog.length >= 2) { await checkpoint(); sess.story = await dialog(plan.dialog); }
+      else if (plan.story.length >= 2) { await checkpoint(); sess.story = await story(plan.story); }
 
       // 4. 마무리 재확인
       for (const s of todays.slice(0, 2)) {
         await checkpoint();
         setPhase('마무리 재확인', 'LAST CHECK', 0, 0);
         await say('Before we finish, one more time.');
-        const r = await drill(s, s.type === 'ext' ? 'repeat' : 'recall', 'recheck');
+        const r = await drill(s, s.type === 'ext' ? 'repeat' : askMode(s), 'recheck');
         data.states[s.id] = C.updateState(stateOf(s.id), 'recheck', r, day);
         sess.results.push({ sid: s.id, kind: 'recheck', ...r }); save();
       }
@@ -800,9 +837,10 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     const h = document.createElement('h2'); h.textContent = '오늘의 수업 계획'; box.append(h);
     const ol = document.createElement('ol');
     const li = (main, sub) => { const x = document.createElement('li'); x.append(main); if (sub) { const s = document.createElement('span'); s.textContent = ' · ' + sub; x.append(s); } ol.append(x); };
-    li(`워밍업 복습 ${p.review.length}문장`, p.review.length ? p.review.map(s => s.type === 'core' ? `핵심 ${s.order}` : '확장').join(', ') : '복습할 문장 없음');
-    li('오늘의 문장', p.fresh ? p.fresh.en : '새 문장 없음 (학습 중 문장 다지기)');
-    li('연결 말하기', p.story.length ? `${p.story.length}문장 이어 말하기` : '핵심 문장 2개가 복습 단계에 오르면 시작');
+    li(`워밍업 복습 ${p.review.length}문장`, p.review.length ? p.review.map(kindLabel).join(', ') : '복습할 문장 없음');
+    li('오늘의 문장', p.fresh ? (p.fresh.type === 'conv' ? `${p.fresh.moduleTitleKo} · Q: ${p.fresh.cue} → ${p.fresh.en}` : p.fresh.en) : '새 문장 없음 (학습 중 문장 다지기)');
+    if (p.dialog.length >= 2) li('대화 연습', `${p.dialog[0].moduleTitleKo} 질문 ${p.dialog.length}개에 이어서 답하기`);
+    else li('연결 말하기', p.story.length ? `${p.story.length}문장 이어 말하기` : '핵심 문장 2개가 복습 단계에 오르면 시작');
     li('마무리 재확인', '오늘 통과한 문장을 한 번 더');
     box.append(ol);
     const next = p.fresh || p.review[0] || byId('c1');
@@ -852,12 +890,24 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     );
     v.append(section('지표', metrics));
 
-    const rows = allSentences().map(s => {
+    const started = allSentences().filter(s => stateOf(s.id).level !== 'new');
+    const waiting = allSentences().length - started.length;
+    const rows = started.map(s => {
       const st = stateOf(s.id);
       const p = document.createElement('span'); p.className = 'pill ' + st.level; p.textContent = LEVEL[st.level];
-      return [{ nowrap: s.type === 'core' ? `핵심 ${s.order}` : s.type === 'mine' ? '내 문장' : '확장' }, s.en, p, { num: st.next || '—' }];
+      return [{ nowrap: kindLabel(s) }, s.en, p, { num: st.next || '—' }];
     });
-    v.append(section('문장별 상태', table(['구분', '문장', '단계', '다음 복습'], rows)));
+    const waitNote = Object.assign(document.createElement('div'), { className: 'empty', textContent: `아직 시작하지 않은 문장 ${waiting}개가 순서대로 기다리고 있습니다.` });
+    v.append(section('문장별 상태', rows.length ? table(['구분', '문장', '단계', '다음 복습'], rows) : Object.assign(document.createElement('div'), { className: 'empty', textContent: '첫 수업을 시작하면 여기에 쌓입니다.' }), waitNote));
+
+    const TOPIC = { daily: '일상', work: '직장', hobby: '취미', travel: '여행' };
+    const modRows = C.MODULES.map(m => {
+      const items = allSentences().filter(s => s.module === m.id);
+      const n = items.filter(s => stateOf(s.id).level !== 'new').length;
+      const r = items.filter(s => ['review', 'mastered'].includes(stateOf(s.id).level)).length;
+      return [{ nowrap: TOPIC[m.topic] }, m.titleKo, { num: `${n}/6` }, { num: `${r}/6` }];
+    });
+    v.append(section('회화 샘플 진도 (17개 주제 · 102문장)', table(['분류', '주제', '시작', '복습 단계'], modRows)));
 
     const stories = [...data.stories].reverse().slice(0, 10);
     if (stories.length) v.append(section('내 이야기', table(['날짜', '제목', '문장'], stories.map(st => [{ num: st.day.slice(5) }, { nowrap: st.title }, st.ids.map(id => (byId(id) || {}).en).filter(Boolean).join(' ')]))));
@@ -865,7 +915,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     const errs = Object.entries(data.errors).sort((a, b) => b[1].count - a[1].count);
     v.append(section('반복 오류', errs.length ? table(['유형', '횟수', '최근 예'], errs.map(([k, x]) => [{ nowrap: KIND[k] || k }, { num: String(x.count) }, x.example])) : Object.assign(document.createElement('div'), { className: 'empty', textContent: '아직 교정 기록이 없습니다.' })));
 
-    const recent = A.slice(-12).reverse();
+    const recent = A.filter(a => a.text).slice(-12).reverse();
     v.append(section('최근 발화', recent.length ? table(['날짜', '말한 문장', '판정'], recent.map(a => [{ num: a.day.slice(5) }, a.text, { nowrap: { pass: '통과', fix: '교정', korean: '한국어', source: '인터뷰 답' }[a.verdict] || a.verdict }])) : Object.assign(document.createElement('div'), { className: 'empty', textContent: '첫 수업을 시작하면 여기에 쌓입니다.' })));
 
     const tools = document.createElement('div'); tools.className = 'row';

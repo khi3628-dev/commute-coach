@@ -1,6 +1,6 @@
 // Builds two outputs from src/: an artifact page (body only) and a standalone page for HTTPS hosting.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-const core = readFileSync('src/core.js', 'utf8');
+const core = readFileSync('src/content.js', 'utf8') + '\n' + readFileSync('src/core.js', 'utf8');
 const app = readFileSync('src/app.html', 'utf8').replace('/*@@CORE@@*/', () => core);
 mkdirSync('dist', { recursive: true });
 writeFileSync('dist/artifact.html', app);

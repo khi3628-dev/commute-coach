@@ -251,11 +251,43 @@ await page.waitForFunction(() => window.__said.some(t => t.includes('API 키가 
 assert.match(gemCalls[1].url, /models\/gemini-test-model:generateContent$/);
 assert.equal((await store()).stories.length, 2);
 
+// ---- 회화 샘플: new Q&A item (question → model answer), conversation practice, recheck by question ----
+await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem('commute-coach.v1'));
+  const R = { level: 'review', step: 1, next: '2999-01-01', lastPracticed: null, failStreak: 0, contexts: ['drill'], split: false };
+  for (const id of ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'd1-1', 'd1-2']) d.states[id] = { ...R };
+  for (const c of d.custom) d.states[c.id] = { ...R };
+  localStorage.setItem('commute-coach.v1', JSON.stringify(d));
+});
+await page.reload();
+const planText = await page.textContent('#plan');
+assert.match(planText, /친구와 점심 · Q: How was the food\? → It was really good, but the line was long\./);
+assert.match(planText, /대화 연습/);
+await page.click('#start');
+await page.waitForFunction(() => window.__said.includes('You can answer:'));
+assert.match(await page.textContent('#s-tag'), /LUNCH WITH A FRIEND · Q: How was the food\?/);
+await answer('It was really good but the line was long');            // new item passes
+await page.waitForFunction(() => window.__said.some(t => t.startsWith("Let's have a quick conversation. Lunch with a friend.")));
+await answer('I met up with a friend for lunch');                     // d1-1 ok
+await answer('We went to a ramen place');                             // d1-2 not quite → model answer
+await page.waitForFunction(() => window.__said.some(t => t.startsWith('Nice. You answered 1 of 2')));
+await page.waitForFunction(() => window.__said.includes('Before we finish, one more time.'));
+await answer('It was really good, but the line was long.');           // recheck: hears only the question
+await page.waitForFunction(() => JSON.parse(localStorage.getItem('commute-coach.v1')).sessions.length === 10);
+d = await store();
+assert.equal(d.sessions[9].end, 'done');
+assert.equal(d.states['d1-3'].level, 'review');
+assert.ok(d.states['d1-1'].contexts.includes('story'), 'conversation counts as a second context');
+assert.ok(!(d.states['d1-2'].contexts || []).includes('story'));
+const lastSaid = await page.evaluate(() => window.__said.slice(-6));
+assert.ok(lastSaid.includes('How was the food?'), 'recheck asks the question');
+
 // ---- Records tab renders the metrics ----
 await page.click('#tab-records');
 const rec = await page.textContent('#view-records');
 assert.match(rec, /Coherence/); assert.match(rec, /3\/3/); assert.match(rec, /전치사/);
 assert.match(rec, /Pronunciation미측정/);
+assert.match(rec, /회화 샘플 진도/); assert.match(rec, /친구와 점심/); assert.match(rec, /순서대로 기다리고/);
 assert.match(rec, /내 이야기/); assert.match(rec, /A Busy Day/); assert.match(rec, /After work, I went to the gym\./);
 
 await page.setViewportSize({ width: 390, height: 844 });

@@ -208,3 +208,34 @@ test('Gemini 요청과 응답 검증', () => {
   assert.throws(() => C.parseGeminiResponse({ promptFeedback: { blockReason: 'SAFETY' } }), /refused/);
   assert.throws(() => C.parseGeminiResponse({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{' }] } }] }), /cut off/);
 });
+
+test('회화 샘플 102개: 형식과 판정', () => {
+  const conv = C.SENTENCES.filter(s => s.type === 'conv');
+  assert.equal(conv.length, 102);
+  assert.equal(C.MODULES.length, 17);
+  assert.equal(new Set(C.SENTENCES.map(s => s.id)).size, C.SENTENCES.length, 'ids are unique');
+  for (const s of conv) {
+    assert.ok(s.cue && s.en && s.ko && s.grammar, s.id);
+    assert.ok(!C.hasHangul(s.en) && !C.hasHangul(s.cue), s.id);
+    assert.ok(C.hasHangul(s.ko), s.id);
+    assert.ok(s.en.split(/\s+/).length <= 12, `${s.id} is short enough to say in one breath`);
+    assert.equal(C.judge(s, s.en).verdict, 'pass', `${s.id} passes against itself`);
+  }
+  // numbers spoken as digits by speech recognition still pass
+  const run = conv.find(s => s.id === 'd3-3');
+  assert.equal(C.judge(run, 'I run about 5 kilometers').verdict, 'pass');
+  assert.equal(C.judge(conv.find(s => s.id === 'w1-6'), 'I have 2 meetings this afternoon').verdict, 'pass');
+});
+
+test('회화 샘플은 출근 12문장 다음에 순서대로, 대화 연습은 최근 주제', () => {
+  const R = { ...C.newState(), level: 'review', step: 0, next: '2999-01-01' };
+  const m1 = Object.fromEntries(C.SENTENCES.filter(s => s.type !== 'conv').map(s => [s.id, R]));
+  let p = C.planSession(m1, '2026-10-12');
+  assert.equal(p.fresh.id, 'd1-1');
+  assert.deepEqual(p.dialog, []);
+  p = C.planSession({ ...m1, 'd1-1': R, 'd1-2': R, 'd1-3': R }, '2026-10-12');
+  assert.equal(p.fresh.id, 'd1-4');
+  assert.deepEqual(p.dialog.map(s => s.id), ['d1-1', 'd1-2', 'd1-3']);
+  p = C.planSession({ ...m1, 'd1-1': R, 'd1-2': R, 'd2-1': R }, '2026-10-12');
+  assert.deepEqual(p.dialog, [], 'latest topic has only one sentence ready');
+});
