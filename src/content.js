@@ -3,6 +3,26 @@
 (function (root) {
   'use strict';
 
+  // Illustrations generated with Higgsfield GPT Image 2.5 Flare (prompts: docs/image-prompts.md).
+  // Loaded straight from Higgsfield's CDN; the app hides an image that fails to load.
+  const CDN = 'https://d8j0ntlcm91z4.cloudfront.net/user_3JiWxjnuLk7mVdFFVIbN6vL8oAE/';
+  const IMAGES = {
+    icon: CDN + 'hf_20261014_104509_02ecce27-6fe5-4cf7-a160-ce0717b9b313.png',
+    commute: CDN + 'hf_20261014_104507_de495c89-6716-448a-b2bb-faff9328aafe.png',
+    lunch: CDN + 'hf_20261014_104508_303a1843-909a-4b92-93fc-f27568276cbd.png',
+    gym: CDN + 'hf_20261014_104507_5bae09b5-0990-40b6-82fd-1473b07b2af8.png',
+    run: CDN + 'hf_20261014_104509_b159217a-dc66-49d9-b6fc-ed4f3e148230.png',
+    parents: CDN + 'hf_20261014_104508_b556dd57-1af4-4b0e-b002-ae16c66a8c1d.png',
+    rest: CDN + 'hf_20261014_104509_249ec0c6-170f-41b7-a6d5-9252cd5840e0.png',
+    office: CDN + 'hf_20261014_104509_2c5a2dfb-2c8a-4468-af38-8c0abba68478.png',
+    reading: CDN + 'hf_20261014_104507_c2661495-10d3-4f7b-ba7b-105416edcc72.png',
+    japan: CDN + 'hf_20261014_104508_3bec63e1-fa29-400b-95e7-5e2ed62aa200.png',
+  };
+  // Topic → illustration. Topics without their own picture borrow the closest one.
+  const MODULE_IMAGE = { d1: 'lunch', d2: 'gym', d3: 'run', d4: 'parents', d5: 'rest', d6: 'rest', w1: 'office', w2: 'office', w3: 'office', w4: 'office', w5: 'office', w6: 'office', h1: 'reading', h2: 'reading', h3: 'reading', h4: 'japan', h5: 'japan' };
+  // Core, extension and my own sentences are about the commute and the day around it.
+  const imageFor = s => (s && s.module ? IMAGES[MODULE_IMAGE[s.module]] : IMAGES.commute);
+
   // [question, answer, Korean meaning, key point]
   const MODULES = [
     // ---------- 일상 생활 ----------
@@ -153,7 +173,7 @@
     CONVERSATIONS.push({ id: `${m.id}-${i + 1}`, type: 'conv', module: m.id, moduleTitle: m.title, moduleTitleKo: m.titleKo, topic: m.topic, order: mi * 10 + i, cue, en, ko, grammar, variants: [] });
   }));
 
-  const api = { MODULES, CONVERSATIONS };
+  const api = { MODULES, CONVERSATIONS, IMAGES, imageFor };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CoachContent = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

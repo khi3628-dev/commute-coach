@@ -41,12 +41,26 @@ await page.addInitScript(() => {
 });
 
 const answer = t => page.evaluate(x => window.__queue.push(x), t);
+
+// Illustrations come from Higgsfield's CDN; serve a tiny PNG for known files and 404 for anything else.
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk2PH/PwAFJQJ9aR0e8AAAAABJRU5ErkJggg==', 'base64');
+const imgRequests = [];
+await page.route('https://d8j0ntlcm91z4.cloudfront.net/**', route => {
+  const url = route.request().url();
+  imgRequests.push(url);
+  if (/missing/.test(url)) return route.fulfill({ status: 404, body: '' });
+  return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+});
 const said = () => page.evaluate(() => window.__said.join(' | '));
 const store = () => page.evaluate(() => JSON.parse(localStorage.getItem('commute-coach.v1')));
 
 // ---- Day 1: first sentence, one correction, then pass, then end-of-session recheck ----
 await page.goto(url);
 assert.match(await page.textContent('#plan'), /I'm heading to work\./);
+await page.waitForFunction(() => !document.getElementById('s-img').hidden);
+assert.match(await page.getAttribute('#s-img', 'src'), /de495c89/, 'commute picture on the first sentence');
+await page.evaluate(() => { document.getElementById('s-img').src = 'https://d8j0ntlcm91z4.cloudfront.net/missing.png'; });
+await page.waitForFunction(() => document.getElementById('s-img').hidden, null, { timeout: 5000 });
 await page.click('#start');
 assert.equal(await page.locator('#view-lesson input:not([disabled]), #view-lesson textarea:not([disabled])').count(), 0, 'no usable text box during the lesson');
 assert.equal(await page.isDisabled('#start'), true, 'start is locked during the lesson');
@@ -266,6 +280,8 @@ assert.match(planText, /대화 연습/);
 await page.click('#start');
 await page.waitForFunction(() => window.__said.includes('You can answer:'));
 assert.match(await page.textContent('#s-tag'), /LUNCH WITH A FRIEND · Q: How was the food\?/);
+await page.waitForFunction(() => !document.getElementById('s-img').hidden);
+assert.match(await page.getAttribute('#s-img', 'src'), /303a1843/, 'lunch picture on the lunch topic');
 await answer('It was really good but the line was long');            // new item passes
 await page.waitForFunction(() => window.__said.some(t => t.startsWith("Let's have a quick conversation. Lunch with a friend.")));
 await answer('I met up with a friend for lunch');                     // d1-1 ok

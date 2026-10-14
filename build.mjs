@@ -10,6 +10,8 @@ const page = `<!doctype html>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Commute Coach">
 <meta name="theme-color" content="#0b6b4c">
+<link rel="apple-touch-icon" href="https://d8j0ntlcm91z4.cloudfront.net/user_3JiWxjnuLk7mVdFFVIbN6vL8oAE/hf_20261014_104509_02ecce27-6fe5-4cf7-a160-ce0717b9b313.png">
+<link rel="icon" type="image/png" href="https://d8j0ntlcm91z4.cloudfront.net/user_3JiWxjnuLk7mVdFFVIbN6vL8oAE/hf_20261014_104509_02ecce27-6fe5-4cf7-a160-ce0717b9b313.png">
 <style>*,*::before,*::after{box-sizing:border-box}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}</style>
 </head><body>
 ${app}
