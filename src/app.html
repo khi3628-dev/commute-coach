@@ -505,7 +505,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
       if (j.verdict === 'pass') {
         revealSentence(s);
         await say(j.tip ? `Good. ${j.tip}` : praise());
-        return { passed: true, firstTry, hinted, attempts: tries + 1 };
+        return { passed: true, firstTry, hinted, attempts: tries + 1, latency: r.latency };
       }
       firstTry = false; tries++;
       revealSentence(s);
@@ -649,7 +649,8 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
         for (const s of learning) {
           await checkpoint();
           setPhase('다지기', 'PRACTICE', 0, 0);
-          const r = await drill(s, 'repeat', 'learn');
+          // second time round: recall it (Korean → English) unless it keeps failing
+          const r = await drill(s, s.type === 'ext' || stateOf(s.id).failStreak >= 2 ? 'repeat' : askMode(s), 'learn');
           data.states[s.id] = C.updateState(stateOf(s.id), 'learn', r, day);
           sess.results.push({ sid: s.id, kind: 'learn', ...r }); save();
           if (r.passed) todays.push(s);

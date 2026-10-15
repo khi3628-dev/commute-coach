@@ -361,6 +361,7 @@ await answer('stop');
 await page.waitForFunction(() => JSON.parse(localStorage.getItem('commute-coach.v1')).sessions.length === 2);
 d = await store();
 assert.ok(d.focusSince.preposition, 'count starts over after the focus');
+assert.equal(d.states.c2.step, 3, 'answered at once (fake voice) → easy → one interval skipped');
 assert.doesNotMatch(await page.textContent('#plan'), /반복 오류/);
 
 assert.deepEqual(errors, []);

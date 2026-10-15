@@ -278,3 +278,23 @@ test('같은 오류 유형 3번이면 그 문장을 다음 수업 복습 맨 앞
   assert.deepEqual(p.review.map(s => s.id), ['c1', 'c2', 'c3'], '복습일이 아니어도 맨 앞');
   assert.deepEqual(C.planSession(states, '2026-10-15', { focus: 'c4' }).review.map(s => s.id), ['c2', 'c3'], '배운 적 없는 문장은 넣지 않음');
 });
+
+test('복습 간격 개인화: 빨리 말하면 한 칸 건너뛰고, 오래 걸리면 같은 간격 반복', () => {
+  assert.equal(C.grade(900), 'easy');
+  assert.equal(C.grade(2500), 'good');
+  assert.equal(C.grade(5200), 'hard');
+  assert.equal(C.grade(null), 'good', '측정 못 하면 보통');
+  const day = '2026-10-15';
+  const R = { ...C.newState(), level: 'review', step: 0, next: day };
+  const ok = ms => ({ passed: true, firstTry: true, hinted: false, latency: ms });
+  assert.equal(C.updateState(R, 'review', ok(2500), day).next, '2026-10-18', '보통: 3일');
+  const easy = C.updateState(R, 'review', ok(900), day);
+  assert.equal(easy.step, 2);
+  assert.equal(easy.next, '2026-10-22', '쉬움: 3일을 건너뛰고 7일');
+  const hard = C.updateState(R, 'review', ok(5200), day);
+  assert.equal(hard.step, 0);
+  assert.equal(hard.next, '2026-10-16', '어려움: 1일 다시');
+  assert.equal(hard.level, 'review', '어려워도 맞혔으면 학습 중으로 되돌리지 않음');
+  const late = { ...R, step: 3, contexts: ['drill', 'story'] };
+  assert.equal(C.updateState(late, 'review', ok(900), day).level, 'mastered', '건너뛰어도 마지막 간격까지만');
+});

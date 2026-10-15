@@ -163,6 +163,10 @@
   // ---------- Review scheduling (원본 9장 제안 간격: 1 → 3 → 7 → 14일) ----------
   const INTERVALS = [1, 3, 7, 14];
 
+  // How quickly the answer started (ms from listening to speech). Unknown → 'good'.
+  const EASY_MS = 1500, HARD_MS = 4000;
+  const grade = ms => (ms == null ? 'good' : ms <= EASY_MS ? 'easy' : ms > HARD_MS ? 'hard' : 'good');
+
   function newState() {
     return { level: 'new', step: -1, next: null, lastPracticed: null, failStreak: 0, contexts: [], split: false };
   }
@@ -193,7 +197,9 @@
     }
     if (kind === 'review') {
       if (clean && (st.level === 'review' || st.level === 'mastered')) {
-        st.step = Math.min(st.step + 1, INTERVALS.length);
+        // easy (started within 1.5 s) skips one interval; hard (over 4 s) repeats the same one
+        const g = grade(result.latency);
+        st.step = Math.min(st.step + (g === 'easy' ? 2 : g === 'hard' ? 0 : 1), INTERVALS.length);
         if (st.step >= INTERVALS.length && st.contexts.length >= 2) { st.level = 'mastered'; st.next = addDays(day, 30); }
         else st.next = addDays(day, INTERVALS[Math.min(st.step, INTERVALS.length - 1)]);
       } else if (clean && st.level === 'learning') {
@@ -409,7 +415,7 @@
     return { title, sentences, feedback: String(out.feedback || '').trim().slice(0, 140) };
   }
 
-  const api = { SENTENCES, MODULES: CONTENT.MODULES, chunk, pickFocus, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
+  const api = { SENTENCES, MODULES: CONTENT.MODULES, chunk, pickFocus, grade, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CoachCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

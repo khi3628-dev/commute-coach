@@ -41,7 +41,9 @@
 - 회화 샘플 102개: 17개 주제 × 질문→답 6개 (일상 6, 직장 6, 취미·여행 5) — `src/content.js`
 
 **기타**
-- 운전 모드: 전체 화면 표지판 디자인, 문장 글자 없음, 화면 꺼짐 방지, 두 번 침묵하면 자동 일시정지
+- 운전 모드: 전체 화면 표지판 디자인, 문장 글자 없음, 화면 꺼짐 방지, 두 번 침묵하면 자동 일시정지. 이어 말하기는 최대 3문장(6문장 출근 이야기는 날마다 앞·뒤 3문장 번갈아, 내 이야기 4~5문장은 2~3문장씩 나눠서). 일반 화면은 그대로 6문장
+- 반복 오류: 같은 오류 유형(관사·전치사·연결어·어미·어순·be동사 빠짐)이 시도 3번에서 나오면 가장 많이 틀린 문장을 다음 수업 워밍업 맨 앞에 넣고 한 줄 팁("Watch the preposition.")을 말함. 넣은 뒤로는 다시 셈(`focusSince`)
+- 음성 인식: `continuous`를 쓰지 않음. 긴 답은 구간마다 다시 시작해 이어 붙이고 2.6초 말이 없으면 끝. 시작하자마자 오류 없이 끝나면 한 번 다시 시도
 - 음성 명령(발화 전체가 명령일 때만): again/다시, slower/천천히, meaning/뜻, skip/넘어가, pause/잠깐, resume/계속, stop/그만
 - 선생님 목소리: iPhone 고품질(향상됨/프리미엄) 음성 우선, 직접 선택·미리 듣기
 - 기록 탭: Retention, Fluency(말 시작까지 시간), Coherence, Transfer, Pronunciation(미측정 표시), 문장별 상태, 회화 주제 진도, 내 이야기, 반복 오류, 최근 발화, 백업 복사
@@ -55,7 +57,7 @@ img/             그림 10장 (icon.png, commute/lunch/gym/run/parents/rest/offi
 src/core.js      순수 로직(DOM 없음): 정답 판정, 명령어, 복습 일정, 세션 계획, 인터뷰 질문, AI 요청/응답 검증
 src/app.html     화면 + 세션 흐름(음성 입출력, 수업, 인터뷰, 기록 탭, 설정)
 build.mjs        src → index.html(Pages가 서비스) + dist/index.html + dist/artifact.html
-test/core.test.js  로직 테스트 22개 (node:test)
+test/core.test.js  로직 테스트 26개 (node:test)
 test/e2e.mjs       Chromium 시뮬레이션 (가짜 음성 인식·합성, 가짜 AI 서버, 루트 index.html을 엽니다)
 docs/image-prompts.md  이미지 프롬프트와 Higgsfield 작업 ID
 ```
@@ -65,8 +67,10 @@ docs/image-prompts.md  이미지 프롬프트와 Higgsfield 작업 ID
 
 ### 핵심 로직 (src/core.js)
 - `judge(sentence, text, learned)`: 단어 단위 정렬로 비교. 축약형 펼침(I'm → I am), 숫자→영어(5 → five), ok/okay, email/emails 같게 취급. 결과는 `pass` / `fix`(오류 종류: article, preposition, connector, form, word_order, contraction, word) / `korean` / `empty`.
-- `updateState(state, kind, result, day)`: 단계 `new → learning → review → mastered`. 복습 간격 1→3→7→14일. 숙달하려면 14일 복습 통과 + 2가지 이상 상황(drill, story, transfer)에서 성공. 3회 연속 실패 시 분해 연습 표시.
-- `planSession(states, day, {extra})`: 복습 최대 4개(오래된 순), 새 문장 1개(학습 중 3개 미만일 때, 순서: 핵심 → 확장 → 회화 샘플), 연결 말하기 길이, 대화 연습 대상.
+- `updateState(state, kind, result, day)`: 단계 `new → learning → review → mastered`. 복습 간격 1→3→7→14일. 맞힌 답의 말 시작 시간으로 조절(`grade`): 1.5초 이내면 한 칸 건너뛰고, 4초 초과면 같은 간격 반복. 숙달하려면 14일 복습 통과 + 2가지 이상 상황(drill, story, transfer)에서 성공. 3회 연속 실패 시 분해 연습 표시.
+- `planSession(states, day, {extra, maxStory, focus})`: 복습 최대 4개(오래된 순, `focus` 문장은 맨 앞), 새 문장 1개(학습 중 3개 미만일 때, 순서: 핵심 → 확장 → 회화 샘플), 연결 말하기(운전 중 `maxStory` 3), 대화 연습 대상.
+- `pickFocus(attempts, since, ids)`: 같은 오류 유형 3번이면 그 문장과 팁. `chunk(list, max)`: 긴 이야기를 고르게 나누기.
+- 다지기(새 문장 없는 날의 학습 중 문장)는 한국어 뜻 듣고 영어로 말하기. 2번 연속 실패한 문장과 확장 문장은 따라 말하기.
 - `storyMatch(targets, text)`: 이어 말하기에서 순서대로 말한 문장 찾기(80% 이상 일치).
 - `parseCommand(text)`: 발화 전체가 명령일 때만 명령으로 처리.
 - AI: `storyRequest`/`parseStoryResponse`(Claude), `geminiRequest`/`parseGeminiResponse`(Gemini), `providerOf(key)`.
@@ -81,7 +85,7 @@ docs/image-prompts.md  이미지 프롬프트와 Higgsfield 작업 ID
 ```bash
 git clone https://github.com/khi3628-dev/commute-coach && cd commute-coach
 node build.mjs                    # src → index.html, dist/
-node --test test/core.test.js     # 로직 테스트 (22개 통과)
+node --test test/core.test.js     # 로직 테스트 (26개 통과)
 PLAYWRIGHT=/path/to/node_modules/playwright/index.mjs node test/e2e.mjs   # 브라우저 시뮬레이션 ("e2e ok" 출력)
 git push origin main              # 1~2분 뒤 GitHub Pages에 반영
 ```
@@ -111,7 +115,8 @@ git push origin main              # 1~2분 뒤 GitHub Pages에 반영
 - [ ] iPhone 홈 화면 아이콘(이제 같은 도메인의 `img/icon.png`)이 제대로 뜨는지
 
 **할 수 있는 다음 작업**
-- [ ] 같은 오류 유형이 3번 쌓이면 관련 문장을 다음 수업에 넣기 (기획서에 있으나 미구현)
+- [ ] 비상 정지(화면 길게 누르면 일시정지) — "수업 중 음성만" 원칙의 예외라 사용자 결정 대기
+- [ ] 실제 iPhone에서 새 음성 인식 방식 확인: 긴 답(이어 말하기·인터뷰)이 중간에 끊기지 않는지, 구간 사이에 단어가 빠지지 않는지
 - [ ] 회화 샘플 내용 다듬기 (사용자 생활과 안 맞는 문장 수정 — 사용자 피드백 대기)
 - [ ] 회화 샘플을 출근 12문장보다 먼저 나오게 할지 결정 (사용자 선택 대기)
 - [ ] 클라우드 AI 음성(TTS) 도입 여부 — 고품질 iPhone 음성으로 부족할 때
