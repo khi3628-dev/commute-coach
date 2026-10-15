@@ -1,10 +1,11 @@
 // End-to-end: runs real sessions in Chromium with typed answers and a stubbed speech engine.
-import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
+// Uses a globally installed playwright; set PLAYWRIGHT to its index.mjs path elsewhere.
+const { chromium } = await import(process.env.PLAYWRIGHT || '/opt/node22/lib/node_modules/playwright/index.mjs');
 import assert from 'node:assert';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
-const url = pathToFileURL(resolve('dist/index.html')).href;
+const url = pathToFileURL(resolve('index.html')).href;
 const browser = await chromium.launch({  });
 const page = await browser.newPage();
 const errors = [];
@@ -42,15 +43,6 @@ await page.addInitScript(() => {
 
 const answer = t => page.evaluate(x => window.__queue.push(x), t);
 
-// Illustrations come from Higgsfield's CDN; serve a tiny PNG for known files and 404 for anything else.
-const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk2PH/PwAFJQJ9aR0e8AAAAABJRU5ErkJggg==', 'base64');
-const imgRequests = [];
-await page.route('https://d8j0ntlcm91z4.cloudfront.net/**', route => {
-  const url = route.request().url();
-  imgRequests.push(url);
-  if (/missing/.test(url)) return route.fulfill({ status: 404, body: '' });
-  return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
-});
 const said = () => page.evaluate(() => window.__said.join(' | '));
 const store = () => page.evaluate(() => JSON.parse(localStorage.getItem('commute-coach.v1')));
 
@@ -58,8 +50,8 @@ const store = () => page.evaluate(() => JSON.parse(localStorage.getItem('commute
 await page.goto(url);
 assert.match(await page.textContent('#plan'), /I'm heading to work\./);
 await page.waitForFunction(() => !document.getElementById('s-img').hidden);
-assert.match(await page.getAttribute('#s-img', 'src'), /de495c89/, 'commute picture on the first sentence');
-await page.evaluate(() => { document.getElementById('s-img').src = 'https://d8j0ntlcm91z4.cloudfront.net/missing.png'; });
+assert.match(await page.getAttribute('#s-img', 'src'), /img\/commute\.jpg$/, 'commute picture on the first sentence');
+await page.evaluate(() => { document.getElementById('s-img').src = 'img/missing.jpg'; });
 await page.waitForFunction(() => document.getElementById('s-img').hidden, null, { timeout: 5000 });
 await page.click('#start');
 assert.equal(await page.locator('#view-lesson input:not([disabled]), #view-lesson textarea:not([disabled])').count(), 0, 'no usable text box during the lesson');
@@ -281,7 +273,7 @@ await page.click('#start');
 await page.waitForFunction(() => window.__said.includes('You can answer:'));
 assert.match(await page.textContent('#s-tag'), /LUNCH WITH A FRIEND · Q: How was the food\?/);
 await page.waitForFunction(() => !document.getElementById('s-img').hidden);
-assert.match(await page.getAttribute('#s-img', 'src'), /303a1843/, 'lunch picture on the lunch topic');
+assert.match(await page.getAttribute('#s-img', 'src'), /img\/lunch\.jpg$/, 'lunch picture on the lunch topic');
 await answer('It was really good but the line was long');            // new item passes
 await page.waitForFunction(() => window.__said.some(t => t.startsWith("Let's have a quick conversation. Lunch with a friend.")));
 await answer('I met up with a friend for lunch');                     // d1-1 ok

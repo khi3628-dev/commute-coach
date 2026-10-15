@@ -45,17 +45,18 @@
 - 음성 명령(발화 전체가 명령일 때만): again/다시, slower/천천히, meaning/뜻, skip/넘어가, pause/잠깐, resume/계속, stop/그만
 - 선생님 목소리: iPhone 고품질(향상됨/프리미엄) 음성 우선, 직접 선택·미리 듣기
 - 기록 탭: Retention, Fluency(말 시작까지 시간), Coherence, Transfer, Pronunciation(미측정 표시), 문장별 상태, 회화 주제 진도, 내 이야기, 반복 오류, 최근 발화, 백업 복사
-- 그림: Higgsfield GPT Image 2.5 Flare로 만든 10장(아이콘 + 주제 그림 9장), 문장 카드 위에 표시
+- 그림: Higgsfield GPT Image 2.5 Flare로 만든 10장(아이콘 + 주제 그림 9장), 문장 카드 위에 표시. `img/`에 줄인 사본(JPEG 800px, 아이콘 PNG 512px, 합계 약 1.3MB)으로 보관
 
 ## 4. 구조와 파일
 
 ```
-src/content.js   회화 샘플 102개(MODULES), 그림 주소(IMAGES, imageFor)
+src/content.js   회화 샘플 102개(MODULES), 그림 주소(IMAGES, imageFor → img/)
+img/             그림 10장 (icon.png, commute/lunch/gym/run/parents/rest/office/reading/japan.jpg)
 src/core.js      순수 로직(DOM 없음): 정답 판정, 명령어, 복습 일정, 세션 계획, 인터뷰 질문, AI 요청/응답 검증
 src/app.html     화면 + 세션 흐름(음성 입출력, 수업, 인터뷰, 기록 탭, 설정)
 build.mjs        src → index.html(Pages가 서비스) + dist/index.html + dist/artifact.html
 test/core.test.js  로직 테스트 22개 (node:test)
-test/e2e.mjs       Chromium 시뮬레이션 (가짜 음성 인식·합성, 가짜 AI·이미지 서버)
+test/e2e.mjs       Chromium 시뮬레이션 (가짜 음성 인식·합성, 가짜 AI 서버, 루트 index.html을 엽니다)
 docs/image-prompts.md  이미지 프롬프트와 Higgsfield 작업 ID
 ```
 
@@ -81,11 +82,12 @@ docs/image-prompts.md  이미지 프롬프트와 Higgsfield 작업 ID
 git clone https://github.com/khi3628-dev/commute-coach && cd commute-coach
 node build.mjs                    # src → index.html, dist/
 node --test test/core.test.js     # 로직 테스트 (22개 통과)
-node test/e2e.mjs                 # 브라우저 시뮬레이션 (playwright 필요, "e2e ok" 출력)
+PLAYWRIGHT=/path/to/node_modules/playwright/index.mjs node test/e2e.mjs   # 브라우저 시뮬레이션 ("e2e ok" 출력)
 git push origin main              # 1~2분 뒤 GitHub Pages에 반영
 ```
 
-- e2e는 전역 설치된 playwright를 쓰도록 `test/e2e.mjs` 맨 위 import 줄에 경로가 박혀 있습니다(`/opt/node22/lib/node_modules/playwright/index.mjs`). 다른 환경에서는 이 경로를 바꾸세요.
+- e2e는 설치된 playwright를 `PLAYWRIGHT` 환경 변수 경로에서 불러옵니다(없으면 `/opt/node22/lib/node_modules/playwright/index.mjs`). 사용자 Mac에서는 `~/.npm/_npx/e41f203b7505f1fb/node_modules/playwright/index.mjs`(1.61.1)로 통과 확인.
+- `dist/index.html`에서는 그림 경로(`img/`)가 맞지 않아 그림이 숨겨집니다. 실제 서비스와 e2e는 루트 `index.html`을 씁니다.
 - 커밋 작성자는 `khi3628-dev`로 해 왔습니다.
 
 ## 6. 지켜 온 결정 (바꾸기 전에 사용자 확인)
@@ -105,11 +107,10 @@ git push origin main              # 1~2분 뒤 GitHub Pages에 반영
 - [ ] Gemini 기본 모델 이름 `gemini-flash-latest`가 지금도 유효한지 (공식 문서를 이 환경에서 열지 못함)
 - [ ] iPhone에서 한국어 음성 인식(인터뷰 한국어 답) 정확도
 - [ ] iPhone Safari에서 고품질 음성이 목록에 뜨는지
-- [ ] 그림 10장의 실제 모습(글자 섞임·어색한 손 등)과, Higgsfield CDN 주소가 계속 열리는지
-- [ ] 다른 도메인 주소의 홈 화면 아이콘(apple-touch-icon)을 iPhone이 받아들이는지
+- [x] 그림 10장 확인: 글자 섞임·어색한 손 없음. 단, '휴식'·'독서' 그림의 인물은 수염이 있어 다른 그림의 주인공과 조금 다름
+- [ ] iPhone 홈 화면 아이콘(이제 같은 도메인의 `img/icon.png`)이 제대로 뜨는지
 
 **할 수 있는 다음 작업**
-- [ ] 그림을 저장소에 영구 보관: 작업 환경 네트워크 설정에서 `d8j0ntlcm91z4.cloudfront.net` 허용 → 이미지 내려받아 `img/`에 넣고 `src/content.js`의 `CDN`을 상대 경로로 변경
 - [ ] 같은 오류 유형이 3번 쌓이면 관련 문장을 다음 수업에 넣기 (기획서에 있으나 미구현)
 - [ ] 회화 샘플 내용 다듬기 (사용자 생활과 안 맞는 문장 수정 — 사용자 피드백 대기)
 - [ ] 회화 샘플을 출근 12문장보다 먼저 나오게 할지 결정 (사용자 선택 대기)
@@ -123,7 +124,6 @@ git push origin main              # 1~2분 뒤 GitHub Pages에 반영
 - 선생님이 말하는 중에는 끼어들 수 없음(듣는 중에만 명령)
 - 영어 수업 중 음성 인식 언어가 en-US로 고정이라 한국어 답은 잘못 인식될 수 있음(인터뷰의 한국어 모드는 ko-KR)
 - 버튼이 없어서 음성 인식이 계속 실패하면 "stop"도 안 먹힐 수 있음 → 탭을 닫으면 그때까지 기록은 남음
-- 클라우드 작업 환경(Claude Code)에서는 cloudfront 이미지 주소가 막혀 있음
 
 ## 9. 새 세션에서 이어갈 때 쓸 첫 메시지 예시
 
