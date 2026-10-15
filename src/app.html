@@ -87,6 +87,7 @@ header.top { display: flex; align-items: center; justify-content: space-between;
 #ai input, #gemini-model { flex: 1; min-width: 0; width: 100%; font: inherit; font-size: 16px; padding: 8px 10px; border: 1.5px solid var(--line); border-radius: var(--r); background: var(--surface); color: var(--ink); }
 #ai .row { flex-wrap: nowrap; }
 @media (max-width: 480px) { #ai .row { flex-wrap: wrap; } }
+.settings input[type="time"] { font: inherit; padding: 3px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
 .settings select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
 
 /* Records tab */
@@ -109,6 +110,10 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
 .pill.review { border-color: var(--sign); color: var(--sign); }
 .pill.mastered { background: var(--sign); border-color: var(--sign); color: var(--sign-ink); }
 .empty { color: var(--muted); font-size: 14px; }
+#restore-text { width: 100%; font: inherit; font-size: 16px; padding: 8px 10px; border: 1.5px solid var(--line); border-radius: var(--r); background: var(--surface); color: var(--ink); }
+#restore-file { font-size: 14px; color: var(--muted); max-width: 100%; }
+.foot { font-size: 13px; color: var(--muted); }
+.foot a { color: var(--muted); }
 
 /* Drive mode: the whole screen is one highway sign, no sentence text. */
 .drive { position: fixed; inset: 0; background: var(--sign); color: var(--sign-ink); display: grid; grid-template-rows: auto 1fr auto; padding: calc(env(safe-area-inset-top, 0px) + 20px) 20px calc(env(safe-area-inset-bottom, 0px) + 24px); z-index: 10; }
@@ -135,7 +140,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
   <div class="notice" id="env"></div>
 
   <section id="view-lesson" class="sec">
-    <div class="strip"><span class="phase" id="phase">오늘의 출근길 수업</span><span class="chip" id="state" data-s="idle">Ready</span></div>
+    <div class="strip"><span class="phase" id="phase">오늘의 출근길 수업</span><span class="chip" id="state" data-s="idle" role="status">Ready</span></div>
 
     <div class="signcard" id="sentence">
       <img id="s-img" alt="" decoding="async" hidden>
@@ -146,7 +151,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
 
     <div class="card">
       <div class="said" id="said"><span class="lbl">내가 말한 문장</span><span id="said-text" class="empty">아직 없음</span></div>
-      <div class="teacher"><span class="lbl">선생님</span><span id="teacher">시작하면 지난 기록을 불러와 한 문장씩 진행합니다. 그 뒤로는 모두 말로 답합니다.</span></div>
+      <div class="teacher"><span class="lbl">선생님</span><span id="teacher" aria-live="polite">시작하면 지난 기록을 불러와 한 문장씩 진행합니다. 그 뒤로는 모두 말로 답합니다.</span></div>
       <div class="voicehelp" id="voicehelp">
         <span class="lbl">음성 명령</span>
         <ul>
@@ -180,6 +185,12 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
       </label>
       <button class="btn" id="voice-test" type="button">미리 듣기</button>
     </div>
+    <div class="settings">
+      <label>매일 알림
+        <input id="remind-time" type="time" value="08:00" aria-label="알림 시각">
+      </label>
+      <button class="btn" id="remind" type="button">캘린더에 추가</button>
+    </div>
     <p class="empty" id="voice-hint"></p>
 
     <details class="card" id="ai">
@@ -198,6 +209,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
   </section>
 
   <section id="view-records" class="sec" hidden></section>
+  <footer class="foot"><a href="privacy.html">개인정보·데이터 안내</a> · <a href="https://github.com/khi3628-dev/commute-coach">소스 코드</a></footer>
 </div>
 
 <div class="drive" id="drive" hidden>
@@ -205,7 +217,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
   <div class="dtop"><span>COMMUTE COACH</span><span id="d-step"></span></div>
   <div class="dmid">
     <div class="dphase" id="d-phase">READY</div>
-    <div class="dstate" id="d-state">TAP TO START</div>
+    <div class="dstate" id="d-state" role="status">TAP TO START</div>
     <button class="dbtn" id="d-btn" type="button">START</button>
   </div>
   <div class="dbot" id="d-bot"><button id="d-exit" type="button">일반 화면</button></div>
@@ -250,6 +262,8 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     env.textContent = '';
     const line = (b, t) => { const d = document.createElement('div'); const s = document.createElement('b'); s.textContent = b; d.append(s, ' ' + t); env.append(d); };
     if (voiceOK()) line('음성 전용 수업.', '시작한 뒤에는 답과 명령을 모두 말로 합니다. 처음 시작할 때 마이크 권한을 허용하세요.');
+    if (voiceOK() && (navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches))) line('홈 화면 앱으로 열었습니다.', '이 방식에서는 iPhone 음성 인식이 동작하지 않는다는 보고가 있습니다. 수업이 듣지 못하면 Safari에서 주소를 직접 여세요.');
+    if (voiceOK()) line('운전 중에는 안전이 먼저입니다.', '출발 전에 시작하고, 주행 중에는 화면을 보거나 만지지 마세요. 운전에 집중해야 할 때는 대답하지 않아도 됩니다. 두 번 조용하면 저절로 멈춥니다.');
     else line('이 화면에서는 음성 인식을 쓸 수 없어 수업을 시작할 수 없습니다.', 'iPhone Safari로 HTTPS 주소를 열어 주세요. 기록 탭은 볼 수 있습니다.');
     line(apiKey() ? `${providerName()} 연결됨.` : 'AI 미연결.', apiKey() ? '"오늘 이야기 레슨"을 쓸 수 있습니다.' : '"오늘 이야기 레슨"을 쓰려면 아래 AI 연결에 Claude 또는 Gemini API 키를 넣으세요.');
     if (!ctl.running) { for (const id of ['start', 'drive-start', 'mine-ko', 'mine-en']) $(id).disabled = !voiceOK(); }
@@ -702,7 +716,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     $('start').disabled = on || !voiceOK(); $('drive-start').disabled = on || !voiceOK();
     $('mine-ko').disabled = on || !voiceOK(); $('mine-en').disabled = on || !voiceOK();
     $('speed').disabled = on; $('voice').disabled = on; $('voice-test').disabled = on;
-    for (const id of ['api-key', 'api-save', 'api-clear', 'gemini-model']) $(id).disabled = on;
+    for (const id of ['api-key', 'api-save', 'api-clear', 'gemini-model', 'remind-time', 'remind']) $(id).disabled = on;
     $('start').textContent = on ? '음성으로 진행 중' : '수업 시작';
     $('d-btn').hidden = on; $('d-bot').hidden = on;
   }
@@ -897,6 +911,23 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     showSentence(next, 'repeat');
   }
 
+  // ---------- Daily reminder (.ics: 웹앱은 푸시 알림을 못 보내므로 캘린더 반복 일정으로) ----------
+  $('remind').addEventListener('click', () => {
+    const [h, m] = ($('remind-time').value || '08:00').split(':');
+    const d = C.today().replace(/-/g, '');
+    const t = `${h.padStart(2, '0')}${(m || '00').padStart(2, '0')}00`;
+    const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Commute Coach//KO', 'BEGIN:VEVENT',
+      `UID:commute-coach-daily-${d}@khi3628-dev.github.io`, `DTSTAMP:${d}T000000Z`, `DTSTART:${d}T${t}`, 'DURATION:PT15M',
+      'RRULE:FREQ=DAILY', 'SUMMARY:Commute Coach 영어 수업', `URL:${location.href.split('#')[0]}`,
+      'DESCRIPTION:출발 전에 Safari에서 Commute Coach를 열고 시작하세요.',
+      'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Commute Coach', 'TRIGGER:PT0M', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }));
+    a.download = 'commute-coach-reminder.ics';
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+
   // ---------- Records ----------
   const LEVEL = { new: '새 문장', learning: '학습 중', review: '복습 중', mastered: '숙달' };
   const KIND = { article: '관사', preposition: '전치사', connector: '연결어', form: '시제·복수형', word_order: '어순', contraction: '축약형·be동사', word: '어휘' };
@@ -931,7 +962,10 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     const transfer = C.SENTENCES.filter(s => s.type === 'ext' && (stateOf(s.id).contexts || []).length).length;
 
     const metrics = document.createElement('div'); metrics.className = 'metrics';
+    const days = [...new Set(data.sessions.filter(x => x.results && x.results.length).map(x => x.day).concat(A.map(x => x.day)))];
+    const run = C.streak(days, C.today());
     metrics.append(
+      metric('연속 학습', run ? `${run}일` : '0일', `수업한 날 모두 ${days.length}일 · 오늘 수업하면 이어집니다`),
       ft.length ? metric('Retention', Math.round(100 * ft.filter(Boolean).length / ft.length) + '%', `최근 14일 복습 ${ft.length}회 중 첫 시도 통과`) : metric('Retention', '미측정', '복습 기록이 쌓이면 표시', true),
       lat.length ? metric('Fluency', (lat[Math.floor(lat.length / 2)] / 1000).toFixed(1) + '초', '말하기 시작까지 걸린 시간 (중앙값, 음성만)') : metric('Fluency', '미측정', '음성으로 답한 기록이 없음', true),
       lastStory ? metric('Coherence', `${lastStory.found}/${lastStory.n}`, '마지막 연결 말하기에서 순서대로 말한 문장') : metric('Coherence', '미측정', '연결 말하기 전', true),
@@ -979,9 +1013,32 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
       if (reset.dataset.armed) { data = blank(); save(); renderPlan(); renderRecords(); return; }
       reset.dataset.armed = '1'; reset.textContent = '한 번 더 누르면 모두 삭제';
     });
-    const note = document.createElement('div'); note.className = 'empty'; note.textContent = '기록은 이 기기의 브라우저에만 저장됩니다.';
-    tools.append(copy, reset);
-    v.append(section('데이터', tools, note));
+    const file = document.createElement('button'); file.className = 'btn'; file.type = 'button'; file.textContent = '백업 파일로 저장';
+    file.addEventListener('click', () => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
+      a.download = `commute-coach-backup-${C.today()}.json`;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    });
+    const note = document.createElement('div'); note.className = 'empty'; note.textContent = '기록은 이 기기의 브라우저에만 저장됩니다. Safari 방문 기록을 지우거나 오래 쓰지 않으면 사라질 수 있으니 가끔 백업하세요. AI 키는 백업에 들어가지 않습니다.';
+    tools.append(copy, file, reset);
+    const box = document.createElement('textarea'); box.id = 'restore-text'; box.rows = 3; box.placeholder = '백업한 내용을 여기에 붙여 넣으세요'; box.setAttribute('aria-label', '백업 내용');
+    const pick = document.createElement('input'); pick.type = 'file'; pick.accept = 'application/json,.json'; pick.id = 'restore-file'; pick.setAttribute('aria-label', '백업 파일 선택');
+    pick.addEventListener('change', () => { const f = pick.files && pick.files[0]; if (f) f.text().then(t => { box.value = t; }); });
+    const restore = document.createElement('button'); restore.className = 'btn'; restore.type = 'button'; restore.id = 'restore'; restore.textContent = '백업에서 복원';
+    const msg = document.createElement('div'); msg.className = 'empty'; msg.id = 'restore-msg'; msg.setAttribute('role', 'status');
+    restore.addEventListener('click', () => {
+      let next;
+      try { next = C.parseBackup(box.value); } catch (e) { msg.textContent = '백업 내용이 아닙니다. 복사한 내용 전체를 붙여 넣었는지 확인하세요.'; return; }
+      if (!restore.dataset.armed) { restore.dataset.armed = '1'; restore.textContent = '한 번 더 누르면 지금 기록을 덮어씀'; msg.textContent = `문장 ${Object.keys(next.states).length}개, 수업 ${next.sessions.length}번 기록을 찾았습니다.`; return; }
+      data = { ...blank(), ...next }; data.settings = { ...blank().settings, ...data.settings }; save();
+      $('speed').value = String(data.settings.speed);
+      renderPlan(); renderRecords();
+      $('restore-msg').textContent = '복원했습니다.';
+    });
+    const restoreRow = document.createElement('div'); restoreRow.className = 'row'; restoreRow.append(pick, restore);
+    v.append(section('데이터', tools, note, box, restoreRow, msg));
   }
 
   function tab(which) {

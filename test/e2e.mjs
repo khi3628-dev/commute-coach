@@ -364,6 +364,28 @@ assert.ok(d.focusSince.preposition, 'count starts over after the focus');
 assert.equal(d.states.c2.step, 3, 'answered at once (fake voice) → easy → one interval skipped');
 assert.doesNotMatch(await page.textContent('#plan'), /반복 오류/);
 
+// ---- Records: streak, backup restore (two taps, rejects junk), no API key in backups ----
+await page.evaluate(() => localStorage.setItem('commute-coach.apikey', 'sk-ant-secret'));
+await page.click('#tab-records');
+assert.match(await page.textContent('#view-records'), /연속 학습\s*2일/);
+const backup = JSON.stringify(d);
+assert.doesNotMatch(backup, /sk-ant-secret/);
+await page.fill('#restore-text', 'not a backup');
+await page.click('#restore');
+assert.match(await page.textContent('#restore-msg'), /백업 내용이 아닙니다/);
+await page.evaluate(() => { const x = JSON.parse(localStorage.getItem('commute-coach.v1')); x.sessions = []; x.states = {}; localStorage.setItem('commute-coach.v1', JSON.stringify(x)); });
+await page.reload();
+await page.click('#tab-records');
+await page.fill('#restore-text', backup);
+await page.click('#restore');
+assert.match(await page.textContent('#restore-msg'), /수업 2번/);
+assert.equal((await store()).sessions.length, 0, 'first tap only checks');
+await page.click('#restore');
+assert.equal((await store()).sessions.length, 2);
+assert.equal((await store()).states.c2.step, 3);
+assert.match(await page.textContent('#restore-msg'), /복원했습니다/);
+assert.equal(await page.evaluate(() => localStorage.getItem('commute-coach.apikey')), 'sk-ant-secret', 'restore leaves the key alone');
+
 assert.deepEqual(errors, []);
 console.log('e2e ok');
 await browser.close();

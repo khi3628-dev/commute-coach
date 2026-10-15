@@ -298,3 +298,21 @@ test('복습 간격 개인화: 빨리 말하면 한 칸 건너뛰고, 오래 걸
   const late = { ...R, step: 3, contexts: ['drill', 'story'] };
   assert.equal(C.updateState(late, 'review', ok(900), day).level, 'mastered', '건너뛰어도 마지막 간격까지만');
 });
+
+test('연속 학습일: 오늘 또는 어제부터 거꾸로 센다', () => {
+  assert.equal(C.streak([], '2026-10-16'), 0);
+  assert.equal(C.streak(['2026-10-14', '2026-10-15', '2026-10-16'], '2026-10-16'), 3);
+  assert.equal(C.streak(['2026-10-14', '2026-10-15'], '2026-10-16'), 2, '오늘 아직 안 했으면 어제까지');
+  assert.equal(C.streak(['2026-10-13', '2026-10-15'], '2026-10-16'), 1, '하루 빠지면 끊김');
+  assert.equal(C.streak(['2026-09-30', '2026-10-01'], '2026-10-01'), 2, '달 경계');
+});
+
+test('백업 복원: 기록 모양만 받고 나머지는 거른다', () => {
+  const good = JSON.stringify({ states: {}, attempts: [], sessions: [], stories: [], settings: { speed: 2 }, apikey: 'sk-ant-x', other: 1 });
+  const out = C.parseBackup(good);
+  assert.deepEqual(Object.keys(out).sort(), ['attempts', 'sessions', 'settings', 'states', 'stories']);
+  assert.throws(() => C.parseBackup('hello'), /not json/);
+  assert.throws(() => C.parseBackup('[]'), /not a backup/);
+  assert.throws(() => C.parseBackup('{"states":{},"attempts":[]}'), /not a backup/);
+  assert.throws(() => C.parseBackup('{"states":{},"attempts":[],"sessions":[],"stories":{}}'), /not a backup/);
+});

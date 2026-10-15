@@ -7,6 +7,13 @@ writeFileSync('dist/artifact.html', app);
 const page = `<!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src https://api.anthropic.com https://generativelanguage.googleapis.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="description" content="운전하며 말로만 연습하는 미국 영어 회화 코치. 내 일상 문장을 간격 반복으로 복습하고, 틀린 부분을 짧게 교정합니다.">
+<meta property="og:title" content="Commute Coach">
+<meta property="og:description" content="출퇴근길에 말로만 연습하는 영어 회화 코치">
+<meta property="og:image" content="https://khi3628-dev.github.io/commute-coach/img/commute.jpg">
+<meta property="og:type" content="website">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Commute Coach">
 <meta name="theme-color" content="#0b6b4c">

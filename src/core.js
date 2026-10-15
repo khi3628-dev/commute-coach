@@ -415,7 +415,30 @@
     return { title, sentences, feedback: String(out.feedback || '').trim().slice(0, 140) };
   }
 
-  const api = { SENTENCES, MODULES: CONTENT.MODULES, chunk, pickFocus, grade, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
+  // ---------- Streak / backup ----------
+  // Consecutive days with at least one session, counting back from today (or yesterday if today has none yet).
+  function streak(days, day) {
+    const set = new Set(days);
+    let d = set.has(day) ? day : addDays(day, -1);
+    let n = 0;
+    while (set.has(d)) { n++; d = addDays(d, -1); }
+    return n;
+  }
+
+  // Backup text → stored data. Throws on anything that is not a Commute Coach backup.
+  function parseBackup(text) {
+    let x;
+    try { x = JSON.parse(String(text).trim()); } catch (e) { throw new Error('not json'); }
+    const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
+    if (!isObj(x) || !isObj(x.states) || !Array.isArray(x.attempts) || !Array.isArray(x.sessions)) throw new Error('not a backup');
+    const out = {};
+    for (const k of ['states', 'attempts', 'sessions', 'learned', 'errors', 'custom', 'stories', 'focusSince', 'settings']) if (k in x) out[k] = x[k];
+    for (const k of ['custom', 'stories']) if (k in out && !Array.isArray(out[k])) throw new Error('not a backup');
+    for (const k of ['learned', 'errors', 'focusSince', 'settings']) if (k in out && !isObj(out[k])) throw new Error('not a backup');
+    return out;
+  }
+
+  const api = { SENTENCES, MODULES: CONTENT.MODULES, streak, parseBackup, chunk, pickFocus, grade, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CoachCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

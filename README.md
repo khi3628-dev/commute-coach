@@ -34,5 +34,6 @@ node test/e2e.mjs              # Chromium simulation with a fake speech recogniz
 - With no on-screen buttons, "stop" may not work if recognition keeps failing. Closing the tab keeps everything recorded up to that point.
 - Recognition language is fixed to en-US, so Korean speech may be misrecognized.
 - The API key is called directly from the browser (for personal use). For other users, move it behind a server (e.g. Vercel).
-- Records are stored only in this device's browser (a backup copy button is provided).
-- When the same error type recurs 3 times, the doc says to add a related sentence to the next session. That is not implemented yet.
+- Records are stored only in this device's browser. The Records tab can copy the backup, save it as a file, and restore it from pasted text or a file.
+- Speech recognition reportedly does not work when the app is opened from a Home Screen icon. The app shows a notice in that case; open it in Safari instead.
+- There are no push notifications. "매일 알림" adds a daily repeating event to the Calendar (.ics) instead.

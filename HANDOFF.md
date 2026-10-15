@@ -47,6 +47,10 @@
 - 음성 명령(발화 전체가 명령일 때만): again/다시, slower/천천히, meaning/뜻, skip/넘어가, pause/잠깐, resume/계속, stop/그만
 - 선생님 목소리: iPhone 고품질(향상됨/프리미엄) 음성 우선, 직접 선택·미리 듣기
 - 기록 탭: Retention, Fluency(말 시작까지 시간), Coherence, Transfer, Pronunciation(미측정 표시), 문장별 상태, 회화 주제 진도, 내 이야기, 반복 오류, 최근 발화, 백업 복사
+- 기록 탭 데이터: 백업 복사·파일로 저장·붙여 넣기/파일로 복원(`parseBackup`, 두 번 눌러야 덮어씀, 키는 건드리지 않음), 연속 학습일(`streak`)
+- 매일 알림: 설정의 시각으로 매일 반복하는 캘린더 일정(.ics) 내려받기 (웹앱은 푸시 알림 불가)
+- 운전 안전 안내 문구, 홈 화면 앱으로 열었을 때 음성 인식 경고, `privacy.html`(개인정보·데이터 안내), 페이지에 CSP·설명·OG 메타 (`build.mjs`)
+- 출시 점검 보고서: `docs/launch-review.md`
 - 그림: Higgsfield GPT Image 2.5 Flare로 만든 10장(아이콘 + 주제 그림 9장), 문장 카드 위에 표시. `img/`에 줄인 사본(JPEG 800px, 아이콘 PNG 512px, 합계 약 1.3MB)으로 보관
 
 ## 4. 구조와 파일
@@ -57,7 +61,7 @@ img/             그림 10장 (icon.png, commute/lunch/gym/run/parents/rest/offi
 src/core.js      순수 로직(DOM 없음): 정답 판정, 명령어, 복습 일정, 세션 계획, 인터뷰 질문, AI 요청/응답 검증
 src/app.html     화면 + 세션 흐름(음성 입출력, 수업, 인터뷰, 기록 탭, 설정)
 build.mjs        src → index.html(Pages가 서비스) + dist/index.html + dist/artifact.html
-test/core.test.js  로직 테스트 26개 (node:test)
+test/core.test.js  로직 테스트 28개 (node:test)
 test/e2e.mjs       Chromium 시뮬레이션 (가짜 음성 인식·합성, 가짜 AI 서버, 루트 index.html을 엽니다)
 docs/image-prompts.md  이미지 프롬프트와 Higgsfield 작업 ID
 ```
@@ -85,7 +89,7 @@ docs/image-prompts.md  이미지 프롬프트와 Higgsfield 작업 ID
 ```bash
 git clone https://github.com/khi3628-dev/commute-coach && cd commute-coach
 node build.mjs                    # src → index.html, dist/
-node --test test/core.test.js     # 로직 테스트 (26개 통과)
+node --test test/core.test.js     # 로직 테스트 (28개 통과)
 PLAYWRIGHT=/path/to/node_modules/playwright/index.mjs node test/e2e.mjs   # 브라우저 시뮬레이션 ("e2e ok" 출력)
 git push origin main              # 1~2분 뒤 GitHub Pages에 반영
 ```
@@ -113,6 +117,8 @@ git push origin main              # 1~2분 뒤 GitHub Pages에 반영
 - [ ] iPhone Safari에서 고품질 음성이 목록에 뜨는지
 - [x] 그림 10장 확인: 글자 섞임·어색한 손 없음. 단, '휴식'·'독서' 그림의 인물은 수염이 있어 다른 그림의 주인공과 조금 다름
 - [ ] iPhone 홈 화면 아이콘(이제 같은 도메인의 `img/icon.png`)이 제대로 뜨는지
+- [ ] 홈 화면 아이콘으로 열었을 때 음성 인식이 되는지 (안 된다는 보고가 있음. 안 되면 `apple-mobile-web-app-capable`을 빼서 Safari 탭으로 열리게 할지 결정)
+- [ ] "백업 파일로 저장"과 "캘린더에 추가"(.ics)가 iPhone Safari에서 파일 앱·캘린더로 잘 넘어가는지
 
 **할 수 있는 다음 작업**
 - [ ] 비상 정지(화면 길게 누르면 일시정지) — "수업 중 음성만" 원칙의 예외라 사용자 결정 대기
@@ -121,6 +127,7 @@ git push origin main              # 1~2분 뒤 GitHub Pages에 반영
 - [ ] 회화 샘플을 출근 12문장보다 먼저 나오게 할지 결정 (사용자 선택 대기)
 - [ ] 클라우드 AI 음성(TTS) 도입 여부 — 고품질 iPhone 음성으로 부족할 때
 - [ ] 다른 사람도 쓰게 할 경우: API 키를 서버(Vercel 함수)로 옮기기, 기록 동기화
+- [ ] 출시 점검 보고서(`docs/launch-review.md`)의 "사람이 정할 것" 목록
 - [ ] 장기: 네이티브 iOS 앱(Siri 단축어, 액션 버튼, CarPlay, 백그라운드 오디오)
 
 ## 8. 알려진 한계
