@@ -257,3 +257,24 @@ test('긴 이야기 나누기: 5 → 3+2, 4 → 2+2', () => {
   assert.deepEqual(C.chunk([1, 2, 3, 4], 3), [[1, 2], [3, 4]]);
   assert.deepEqual(C.chunk([1, 2], 3), [[1, 2]]);
 });
+
+test('같은 오류 유형 3번이면 그 문장을 다음 수업 복습 맨 앞에', () => {
+  const ids = C.SENTENCES.map(s => s.id);
+  const at = (t, sid, errors) => ({ t: `2026-10-${t}T08:00:00.000Z`, sid, errors });
+  const log = [at(10, 'c1', ['preposition']), at(11, 'c2', ['article']), at(11, 'c1', ['preposition', 'word']), at(12, 'c3', ['form'])];
+  assert.equal(C.pickFocus(log, {}, ids), null, '2번까지는 없음');
+  log.push(at(13, 'c3', ['preposition']));
+  const f = C.pickFocus(log, {}, ids);
+  assert.equal(f.kind, 'preposition');
+  assert.equal(f.sid, 'c1', '가장 많이 틀린 문장');
+  assert.match(f.tip, /preposition/);
+  assert.equal(C.pickFocus(log, { preposition: '2026-10-13T09:00:00.000Z' }, ids), null, '넣은 뒤로는 다시 셈');
+  assert.equal(C.pickFocus([at(1, 'x', ['word']), at(2, 'x', ['word']), at(3, 'x', ['word'])], {}, ['x']), null, "'어휘'는 대상 아님");
+  assert.equal(C.pickFocus([at(1, 'story', ['article']), at(2, 'story', ['article']), at(3, 'story', ['article'])], {}, ids), null, '문장이 아닌 기록은 무시');
+
+  const R = next => ({ ...C.newState(), level: 'review', step: 1, next });
+  const states = { c1: R('2999-01-01'), c2: R('2026-10-01'), c3: R('2026-10-02') };
+  const p = C.planSession(states, '2026-10-15', { focus: 'c1' });
+  assert.deepEqual(p.review.map(s => s.id), ['c1', 'c2', 'c3'], '복습일이 아니어도 맨 앞');
+  assert.deepEqual(C.planSession(states, '2026-10-15', { focus: 'c4' }).review.map(s => s.id), ['c2', 'c3'], '배운 적 없는 문장은 넣지 않음');
+});

@@ -206,6 +206,33 @@
     return st; // story / transfer only add contexts
   }
 
+  // ---------- Repeated errors (같은 오류 3번 → 다음 수업 복습 맨 앞) ----------
+  // 'word' (any other word) is too broad to point at one habit, so it never triggers a focus.
+  const FOCUS_KINDS = ['article', 'preposition', 'connector', 'form', 'word_order', 'contraction'];
+  const FOCUS_TIP = {
+    article: 'Watch the little words: a, an, the.',
+    preposition: 'Watch the preposition.',
+    connector: 'Watch the linking word.',
+    form: 'Watch the word ending.',
+    word_order: 'Watch the word order.',
+    contraction: "Don't drop the little verb, like am or is.",
+  };
+  // attempts: the attempt log; since: {kind: ISO time of the last focus}; ids: sentence ids that can be practiced.
+  // Counts attempts (not single errors) with that kind after `since`; at 3, picks the sentence that had it most (latest on a tie).
+  function pickFocus(attempts, since, ids) {
+    const ok = new Set(ids);
+    let best = null;
+    for (const kind of FOCUS_KINDS) {
+      const hits = (attempts || []).filter(a => ok.has(a.sid) && (a.errors || []).includes(kind) && (!since || !since[kind] || a.t > since[kind]));
+      if (hits.length < 3) continue;
+      const tally = {};
+      hits.forEach((a, i) => { tally[a.sid] = { n: ((tally[a.sid] && tally[a.sid].n) || 0) + 1, last: i }; });
+      const sid = Object.keys(tally).sort((x, y) => tally[y].n - tally[x].n || tally[y].last - tally[x].last)[0];
+      if (!best || hits.length > best.count) best = { kind, sid, count: hits.length, tip: FOCUS_TIP[kind] };
+    }
+    return best;
+  }
+
   // ---------- Session plan ----------
   // opts.extra: the learner's own sentences (내 문장). They join reviews but not the story.
   function planSession(states, day, opts) {
@@ -216,7 +243,9 @@
       const x = st(s.id);
       return x.level !== 'new' && x.next && x.next <= day;
     }).sort((a, b) => (st(a.id).next < st(b.id).next ? -1 : st(a.id).next > st(b.id).next ? 1 : 0));
-    const review = due.slice(0, o.maxReview);
+    // opts.focus: a sentence id from pickFocus; it goes first, due or not
+    const focus = o.focus && all.find(s => s.id === o.focus && st(s.id).level !== 'new');
+    const review = (focus ? [focus, ...due.filter(s => s !== focus)] : due).slice(0, o.maxReview);
     const learning = all.filter(s => st(s.id).level === 'learning').length;
     let fresh = null;
     if (learning < 3) {
@@ -380,7 +409,7 @@
     return { title, sentences, feedback: String(out.feedback || '').trim().slice(0, 140) };
   }
 
-  const api = { SENTENCES, MODULES: CONTENT.MODULES, chunk, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
+  const api = { SENTENCES, MODULES: CONTENT.MODULES, chunk, pickFocus, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CoachCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

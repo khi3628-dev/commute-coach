@@ -332,6 +332,25 @@ assert.equal(d.sessions[0].mode, 'drive');
 assert.deepEqual(d.sessions[0].story, { n: 3, found: 3 });
 await page.click('#d-exit');
 
+// ---- Same error kind 3 times → that sentence opens the next warm-up with a one-line tip ----
+await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem('commute-coach.v1'));
+  const t = new Date().toISOString();
+  d.attempts.push(...[1, 2, 3].map(() => ({ t, day: '2026-10-15', sid: 'c2', kind: 'review', text: 'It takes about twenty minutes in car', verdict: 'fix', errors: ['preposition'] })));
+  localStorage.setItem('commute-coach.v1', JSON.stringify(d));
+});
+await page.reload();
+assert.match(await page.textContent('#plan'), /워밍업 복습 1문장 · 핵심 2 \(맨 앞: 반복 오류 · 전치사\)/);
+await page.click('#start');
+await page.waitForFunction(() => window.__said.includes('This one has tripped you up. Watch the preposition.'));
+await answer('It takes about twenty minutes by car.');
+await page.waitForFunction(() => window.__said.includes('Listen and repeat.') && window.__said.lastIndexOf('In English?') < window.__said.lastIndexOf('Listen and repeat.'));
+await answer('stop');
+await page.waitForFunction(() => JSON.parse(localStorage.getItem('commute-coach.v1')).sessions.length === 2);
+d = await store();
+assert.ok(d.focusSince.preposition, 'count starts over after the focus');
+assert.doesNotMatch(await page.textContent('#plan'), /반복 오류/);
+
 assert.deepEqual(errors, []);
 console.log('e2e ok');
 await browser.close();

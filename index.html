@@ -610,6 +610,33 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     return st; // story / transfer only add contexts
   }
 
+  // ---------- Repeated errors (같은 오류 3번 → 다음 수업 복습 맨 앞) ----------
+  // 'word' (any other word) is too broad to point at one habit, so it never triggers a focus.
+  const FOCUS_KINDS = ['article', 'preposition', 'connector', 'form', 'word_order', 'contraction'];
+  const FOCUS_TIP = {
+    article: 'Watch the little words: a, an, the.',
+    preposition: 'Watch the preposition.',
+    connector: 'Watch the linking word.',
+    form: 'Watch the word ending.',
+    word_order: 'Watch the word order.',
+    contraction: "Don't drop the little verb, like am or is.",
+  };
+  // attempts: the attempt log; since: {kind: ISO time of the last focus}; ids: sentence ids that can be practiced.
+  // Counts attempts (not single errors) with that kind after `since`; at 3, picks the sentence that had it most (latest on a tie).
+  function pickFocus(attempts, since, ids) {
+    const ok = new Set(ids);
+    let best = null;
+    for (const kind of FOCUS_KINDS) {
+      const hits = (attempts || []).filter(a => ok.has(a.sid) && (a.errors || []).includes(kind) && (!since || !since[kind] || a.t > since[kind]));
+      if (hits.length < 3) continue;
+      const tally = {};
+      hits.forEach((a, i) => { tally[a.sid] = { n: ((tally[a.sid] && tally[a.sid].n) || 0) + 1, last: i }; });
+      const sid = Object.keys(tally).sort((x, y) => tally[y].n - tally[x].n || tally[y].last - tally[x].last)[0];
+      if (!best || hits.length > best.count) best = { kind, sid, count: hits.length, tip: FOCUS_TIP[kind] };
+    }
+    return best;
+  }
+
   // ---------- Session plan ----------
   // opts.extra: the learner's own sentences (내 문장). They join reviews but not the story.
   function planSession(states, day, opts) {
@@ -620,7 +647,9 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
       const x = st(s.id);
       return x.level !== 'new' && x.next && x.next <= day;
     }).sort((a, b) => (st(a.id).next < st(b.id).next ? -1 : st(a.id).next > st(b.id).next ? 1 : 0));
-    const review = due.slice(0, o.maxReview);
+    // opts.focus: a sentence id from pickFocus; it goes first, due or not
+    const focus = o.focus && all.find(s => s.id === o.focus && st(s.id).level !== 'new');
+    const review = (focus ? [focus, ...due.filter(s => s !== focus)] : due).slice(0, o.maxReview);
     const learning = all.filter(s => st(s.id).level === 'learning').length;
     let fresh = null;
     if (learning < 3) {
@@ -784,7 +813,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     return { title, sentences, feedback: String(out.feedback || '').trim().slice(0, 140) };
   }
 
-  const api = { SENTENCES, MODULES: CONTENT.MODULES, chunk, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
+  const api = { SENTENCES, MODULES: CONTENT.MODULES, chunk, pickFocus, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CoachCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
@@ -798,7 +827,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
 
   // ---------- Storage (기기 내 저장) ----------
   const KEY = 'commute-coach.v1';
-  function blank() { return { states: {}, attempts: [], sessions: [], learned: {}, errors: {}, custom: [], stories: [], settings: { speed: 1, voice: '', geminiModel: '' } }; }
+  function blank() { return { states: {}, attempts: [], sessions: [], learned: {}, errors: {}, custom: [], stories: [], focusSince: {}, settings: { speed: 1, voice: '', geminiModel: '' } }; }
   let data = blank();
   try { const raw = localStorage.getItem(KEY); if (raw) data = { ...blank(), ...JSON.parse(raw) }; } catch (e) { /* storage unavailable */ }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { /* ignore */ } }
@@ -808,7 +837,9 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
   const byId = id => allSentences().find(s => s.id === id);
   // 운전 중에는 이어 말하기를 3문장까지만 (긴 이야기는 나눠서). 일반 화면에서는 6문장까지.
   const DRIVE_STORY = 3;
-  const plan = day => C.planSession(data.states, day, { extra: data.custom, maxStory: driveOn ? DRIVE_STORY : 0 });
+  // 같은 오류 유형이 3번 쌓이면 그 오류가 난 문장을 다음 수업 복습 맨 앞에
+  const focusNow = () => C.pickFocus(data.attempts, data.focusSince, allSentences().map(s => s.id));
+  const planFor = day => { const f = focusNow(); return { ...C.planSession(data.states, day, { extra: data.custom, maxStory: driveOn ? DRIVE_STORY : 0, focus: f && f.sid }), focus: f }; };
   const askMode = s => (s.cue ? 'cue' : 'recall');
   const kindLabel = s => (s.type === 'core' ? `핵심 ${s.order}` : s.type === 'mine' ? '내 문장' : s.type === 'conv' ? s.moduleTitleKo : '확장');
 
@@ -1164,7 +1195,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
 
   async function runSession(mode, lang) {
     const day = C.today();
-    const plan = C.planSession(data.states, day, { extra: data.custom, maxStory: driveOn ? DRIVE_STORY : 0 });
+    const plan = planFor(day);
     const sess = { start: new Date().toISOString(), day, mode: driveOn ? 'drive' : 'normal', learned: null, results: [], story: null, end: null };
     ctl.running = true; ctl.stop = false; ctl.paused = false; ctl.reason = null;
     enableControls(true); setStatus('speaking');
@@ -1183,6 +1214,11 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
         const s = plan.review[i];
         await checkpoint();
         setPhase('워밍업 복습', 'WARM-UP', i + 1, plan.review.length);
+        if (plan.focus && s.id === plan.focus.sid) {
+          // counted again only from here, so the same sentence doesn't come back every day
+          data.focusSince = { ...data.focusSince, [plan.focus.kind]: new Date().toISOString() }; save();
+          await say(`This one has tripped you up. ${plan.focus.tip}`);
+        }
         const r = await drill(s, askMode(s), 'review');
         if (s.type === 'ext' && r.passed) data.states[s.id] = C.updateState(stateOf(s.id), 'transfer', r, day);
         data.states[s.id] = C.updateState(stateOf(s.id), 'review', r, day);
@@ -1437,12 +1473,12 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
 
   function renderPlan() {
     const day = C.today();
-    const p = plan(day);
+    const p = planFor(day);
     const box = $('plan'); box.textContent = '';
     const h = document.createElement('h2'); h.textContent = '오늘의 수업 계획'; box.append(h);
     const ol = document.createElement('ol');
     const li = (main, sub) => { const x = document.createElement('li'); x.append(main); if (sub) { const s = document.createElement('span'); s.textContent = ' · ' + sub; x.append(s); } ol.append(x); };
-    li(`워밍업 복습 ${p.review.length}문장`, p.review.length ? p.review.map(kindLabel).join(', ') : '복습할 문장 없음');
+    li(`워밍업 복습 ${p.review.length}문장`, p.review.length ? p.review.map(kindLabel).join(', ') + (p.focus ? ` (맨 앞: 반복 오류 · ${KIND[p.focus.kind]})` : '') : '복습할 문장 없음');
     li('오늘의 문장', p.fresh ? (p.fresh.type === 'conv' ? `${p.fresh.moduleTitleKo} · Q: ${p.fresh.cue} → ${p.fresh.en}` : p.fresh.en) : '새 문장 없음 (학습 중 문장 다지기)');
     if (p.dialog.length >= 2) li('대화 연습', `${p.dialog[0].moduleTitleKo} 질문 ${p.dialog.length}개에 이어서 답하기`);
     else li('연결 말하기', p.story.length ? `${p.story.length}문장 이어 말하기` : '핵심 문장 2개가 복습 단계에 오르면 시작');
