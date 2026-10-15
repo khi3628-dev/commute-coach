@@ -16,21 +16,25 @@ await page.addInitScript(() => {
     speak(u) { window.__said.push(u.text); setTimeout(() => u.onend && u.onend(), 2); },
     cancel() {}, getVoices() { return []; },
   } });
-  // Fake recognizer: each start() consumes one queued utterance. null = silence.
+  // Fake recognizer like Safari's one-shot mode: each start() consumes one queued utterance,
+  // gives one final result and ends. null = silence ("no-speech", then end).
+  // window.__quickEnd = n: the next n starts end at once with no error (iOS right after speech output).
+  window.__quickEnd = 0; window.__starts = 0;
   class FakeSR {
     start() {
+      window.__starts++;
+      if (this.continuous) throw new Error('continuous mode is not used');
       if (window.__deny) return setTimeout(() => this.onerror && this.onerror({ error: 'not-allowed' }), 5);
+      if (window.__quickEnd > 0) { window.__quickEnd--; return setTimeout(() => this.onend && this.onend(), 5); }
       const tick = () => {
         if (this.aborted) return;
         if (!window.__queue.length) return setTimeout(tick, 10);
         const item = window.__queue.shift();
-        if (item === null) return this.onend && this.onend();
+        if (item === null) { this.onerror && this.onerror({ error: 'no-speech' }); return this.onend && this.onend(); }
         this.onspeechstart && this.onspeechstart();
-        if (this.continuous) {
-          const res = [{ transcript: item }]; res.isFinal = true;
-          this.onresult({ results: [res] });
-          setTimeout(() => this.onend && this.onend(), 5);
-        } else this.onresult({ results: [[{ transcript: item, confidence: 0.9 }]] });
+        const res = [{ transcript: item, confidence: 0.9 }]; res.isFinal = true;
+        this.onresult({ results: [res] });
+        setTimeout(() => this.onend && this.onend(), 5);
       };
       setTimeout(tick, 5);
     }
@@ -62,6 +66,7 @@ assert.match(await page.textContent('#said-text'), /FIX/);
 await answer("I'm heading to work.");               // pass
 await answer("I'm heading to work");                // recheck (recall from Korean)
 await page.waitForFunction(() => window.__said.some(t => t.includes('See you tomorrow')));
+await page.waitForFunction(() => JSON.parse(localStorage.getItem('commute-coach.v1') || '{}').sessions?.length === 1);
 let d = await store();
 assert.equal(d.states.c1.level, 'review');
 assert.equal(d.states.c1.step, 0);
@@ -318,12 +323,19 @@ const driveStory = await page.evaluate(() => {
   return window.CoachCore.planSession(d.states, window.CoachCore.today(), { maxStory: 3 }).story.map(s => s.en);
 });
 assert.equal(driveStory.length, 3);
+await page.evaluate(() => { window.__quickEnd = 1; });                // first listen ends at once (iOS after speech output)
+const driveSaid0 = await page.evaluate(() => window.__said.length);
 await page.click('#drive-start');
-await answer('When I get to the office, I check my emails.');         // new e1
+await answer('When I get to the office, I check my emails.');         // new e1, heard on the retry
 await page.waitForFunction(() => window.__said.some(t => t.startsWith('Ready for the story?')));
 assert.ok((await said()).includes('Ready for the story? 3 sentences'), 'drive mode story has 3 sentences');
+assert.equal(await page.evaluate(() => window.__quickEnd), 0);
+assert.ok(!(await page.evaluate(n => window.__said.slice(n), driveSaid0)).includes('Your turn.'), 'the quick end was retried, not taken as silence');
 await answer('yes');
-await answer(driveStory.join(' '));
+await page.waitForFunction(() => window.__said.includes('Tell me your morning, from heading to work.') || window.__said.some(t => t.startsWith('Tell me the rest of your morning')));
+await answer(driveStory.slice(0, 2).join(' '));                        // the long answer comes in two segments
+await page.waitForFunction(t => document.getElementById('said-text').textContent.includes(t), driveStory[1]);
+await answer(driveStory[2]);
 await page.waitForFunction(() => window.__said.some(t => t.startsWith('Great story. All 3')));
 await answer('When I get to the office, I check my emails.');         // last check
 await page.waitForFunction(() => JSON.parse(localStorage.getItem('commute-coach.v1')).sessions.length === 1);

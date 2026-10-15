@@ -308,10 +308,15 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
   const sayKo = t => say(t, { lang: 'ko-KR' });
 
   // ---------- Speech in ----------
+  // Never uses `continuous`: on iPhone it can keep the mic open without ever returning text.
+  // A long answer is heard in segments instead: each time recognition ends after some speech it starts
+  // again, and the answer is done after 2.6 s with no new words.
+  // Recognition that ends at once with no error (seen right after the teacher's voice on iOS) gets one retry.
   function hear(opt) {
     const o = { timeout: 8000, long: false, lang: 'en-US', ...opt };
     return new Promise(resolve => {
-      let done = false, rec = null, timer = null, silence = null, finals = '';
+      let done = false, rec = null, timer = null, silence = null, retried = false;
+      let before = '', seg = '', text = ''; // long answers: earlier segments, this segment's final words, all words so far
       const t0 = performance.now(); let spokeAt = null;
       setStatus('listening');
       function finish(v) {
@@ -320,12 +325,16 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
         if (rec) { try { rec.onend = null; rec.abort(); } catch (e) { /* ignore */ } }
         resolve(v);
       }
+      const longDone = () => finish({ text, conf: null, latency: spokeAt ? Math.round(spokeAt - t0) : null, via: 'voice' });
       const micLost = () => { srBlocked = true; ctl.stop = true; ctl.reason = 'mic'; renderEnv(); finish(null); };
       if (!voiceOK()) return micLost();
-      {
+      function listen() {
+        if (done) return;
+        const segStart = performance.now();
+        let noSpeech = false;
         try {
           rec = new SR();
-          rec.lang = o.lang; rec.interimResults = o.long; rec.continuous = o.long; rec.maxAlternatives = 1;
+          rec.lang = o.lang; rec.interimResults = o.long; rec.continuous = false; rec.maxAlternatives = 1;
           rec.onspeechstart = () => { if (!spokeAt) spokeAt = performance.now(); clearTimeout(timer); };
           rec.onresult = e => {
             if (!spokeAt) spokeAt = performance.now();
@@ -334,24 +343,28 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
               const r = e.results[0][0];
               return finish({ text: r.transcript, conf: r.confidence || null, latency: Math.round(spokeAt - t0), via: 'voice' });
             }
-            finals = ''; let interim = '';
-            for (let i = 0; i < e.results.length; i++) { if (e.results[i].isFinal) finals += e.results[i][0].transcript + ' '; else interim += e.results[i][0].transcript; }
-            $('said-text').textContent = (finals + interim).trim();
+            seg = ''; let interim = '';
+            for (let i = 0; i < e.results.length; i++) { if (e.results[i].isFinal) seg += e.results[i][0].transcript + ' '; else interim += e.results[i][0].transcript; }
+            text = `${before} ${seg} ${interim}`.replace(/\s+/g, ' ').trim();
+            $('said-text').textContent = text;
             clearTimeout(silence);
-            silence = setTimeout(() => finish({ text: (finals + interim).trim(), conf: null, latency: Math.round(spokeAt - t0), via: 'voice' }), 2600);
+            silence = setTimeout(longDone, 2600);
           };
           rec.onerror = e => {
             if (e.error === 'not-allowed' || e.error === 'service-not-allowed') return micLost();
-            if (!(o.long && finals.trim())) finish(null);
+            if (e.error === 'no-speech') noSpeech = true;
           };
           rec.onend = () => {
-            if (o.long && finals.trim()) return finish({ text: finals.trim(), conf: null, latency: spokeAt ? Math.round(spokeAt - t0) : null, via: 'voice' });
+            if (done) return;
+            if (o.long && text) { before = text; seg = ''; return setTimeout(listen, 150); } // keep listening until the silence timer
+            if (!spokeAt && !noSpeech && !retried && performance.now() - segStart < 1000) { retried = true; return setTimeout(listen, 300); }
             finish(null);
           };
           rec.start();
-          timer = setTimeout(() => { if (!spokeAt) finish(null); }, o.timeout);
-        } catch (e) { micLost(); }
+        } catch (e) { if (text) longDone(); else micLost(); }
       }
+      listen();
+      timer = setTimeout(() => { if (!spokeAt) finish(null); }, o.timeout);
     });
   }
 
