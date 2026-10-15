@@ -230,13 +230,29 @@
     let k = 0;
     while (k < cores.length && ['review', 'mastered'].includes(st(cores[k].id).level)) k++;
     const storyLen = k >= 6 ? 6 : k >= 3 ? 3 : k >= 2 ? 2 : 0;
+    // 운전 중(opts.maxStory)에는 긴 이야기를 나눠서, 날마다 앞부분과 뒷부분을 번갈아 말한다
+    let story = cores.slice(0, storyLen);
+    if (o.maxStory && storyLen > o.maxStory) {
+      const parts = chunk(story, o.maxStory);
+      story = parts[dayNumber(day) % parts.length];
+    }
     // 대화 연습: the latest conversation topic with 2+ sentences at review level or above
     const done = s => ['review', 'mastered'].includes(st(s.id).level);
     const convs = SENTENCES.filter(s => s.type === 'conv' && done(s));
     const last = convs.length ? convs[convs.length - 1].module : null;
     const dialog = last ? convs.filter(s => s.module === last) : [];
-    return { review, fresh, story: cores.slice(0, storyLen), dialog: dialog.length >= 2 ? dialog : [] };
+    return { review, fresh, story, dialog: dialog.length >= 2 ? dialog : [] };
   }
+
+  // Split a list into even parts of at most `max` items (5 → 3+2, 4 → 2+2, 6 → 3+3).
+  function chunk(list, max) {
+    const n = Math.ceil(list.length / max);
+    const size = Math.ceil(list.length / n);
+    const out = [];
+    for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+    return out;
+  }
+  const dayNumber = day => Math.round(Date.UTC(...day.split('-').map((x, i) => Number(x) - (i === 1 ? 1 : 0))) / 864e5);
 
   // ---------- 오늘 이야기 인터뷰: 질문, Claude 요청과 응답 검증 ----------
   const QUESTIONS = {
@@ -364,7 +380,7 @@
     return { title, sentences, feedback: String(out.feedback || '').trim().slice(0, 140) };
   }
 
-  const api = { SENTENCES, MODULES: CONTENT.MODULES, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
+  const api = { SENTENCES, MODULES: CONTENT.MODULES, chunk, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CoachCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

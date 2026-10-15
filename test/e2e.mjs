@@ -305,6 +305,33 @@ await page.screenshot({ path: 'test/records-phone.png', fullPage: true });
 await page.click('#tab-lesson');
 await page.screenshot({ path: 'test/lesson-phone.png', fullPage: true });
 
+// ---- Drive mode: the 6-sentence commute story is cut to 3 sentences ----
+await page.evaluate(() => {
+  const R = { level: 'review', step: 1, next: '2999-01-01', lastPracticed: null, failStreak: 0, contexts: ['drill'], split: false };
+  const states = Object.fromEntries(['c1', 'c2', 'c3', 'c4', 'c5', 'c6'].map(id => [id, { ...R }]));
+  localStorage.setItem('commute-coach.v1', JSON.stringify({ states, attempts: [], sessions: [], learned: {}, errors: {}, custom: [], stories: [] }));
+});
+await page.reload();
+assert.match(await page.textContent('#plan'), /6문장 이어 말하기/, 'normal screen keeps the 6-sentence story');
+const driveStory = await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem('commute-coach.v1'));
+  return window.CoachCore.planSession(d.states, window.CoachCore.today(), { maxStory: 3 }).story.map(s => s.en);
+});
+assert.equal(driveStory.length, 3);
+await page.click('#drive-start');
+await answer('When I get to the office, I check my emails.');         // new e1
+await page.waitForFunction(() => window.__said.some(t => t.startsWith('Ready for the story?')));
+assert.ok((await said()).includes('Ready for the story? 3 sentences'), 'drive mode story has 3 sentences');
+await answer('yes');
+await answer(driveStory.join(' '));
+await page.waitForFunction(() => window.__said.some(t => t.startsWith('Great story. All 3')));
+await answer('When I get to the office, I check my emails.');         // last check
+await page.waitForFunction(() => JSON.parse(localStorage.getItem('commute-coach.v1')).sessions.length === 1);
+d = await store();
+assert.equal(d.sessions[0].mode, 'drive');
+assert.deepEqual(d.sessions[0].story, { n: 3, found: 3 });
+await page.click('#d-exit');
+
 assert.deepEqual(errors, []);
 console.log('e2e ok');
 await browser.close();

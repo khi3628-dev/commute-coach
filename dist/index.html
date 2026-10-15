@@ -634,13 +634,29 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     let k = 0;
     while (k < cores.length && ['review', 'mastered'].includes(st(cores[k].id).level)) k++;
     const storyLen = k >= 6 ? 6 : k >= 3 ? 3 : k >= 2 ? 2 : 0;
+    // 운전 중(opts.maxStory)에는 긴 이야기를 나눠서, 날마다 앞부분과 뒷부분을 번갈아 말한다
+    let story = cores.slice(0, storyLen);
+    if (o.maxStory && storyLen > o.maxStory) {
+      const parts = chunk(story, o.maxStory);
+      story = parts[dayNumber(day) % parts.length];
+    }
     // 대화 연습: the latest conversation topic with 2+ sentences at review level or above
     const done = s => ['review', 'mastered'].includes(st(s.id).level);
     const convs = SENTENCES.filter(s => s.type === 'conv' && done(s));
     const last = convs.length ? convs[convs.length - 1].module : null;
     const dialog = last ? convs.filter(s => s.module === last) : [];
-    return { review, fresh, story: cores.slice(0, storyLen), dialog: dialog.length >= 2 ? dialog : [] };
+    return { review, fresh, story, dialog: dialog.length >= 2 ? dialog : [] };
   }
+
+  // Split a list into even parts of at most `max` items (5 → 3+2, 4 → 2+2, 6 → 3+3).
+  function chunk(list, max) {
+    const n = Math.ceil(list.length / max);
+    const size = Math.ceil(list.length / n);
+    const out = [];
+    for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+    return out;
+  }
+  const dayNumber = day => Math.round(Date.UTC(...day.split('-').map((x, i) => Number(x) - (i === 1 ? 1 : 0))) / 864e5);
 
   // ---------- 오늘 이야기 인터뷰: 질문, Claude 요청과 응답 검증 ----------
   const QUESTIONS = {
@@ -768,7 +784,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     return { title, sentences, feedback: String(out.feedback || '').trim().slice(0, 140) };
   }
 
-  const api = { SENTENCES, MODULES: CONTENT.MODULES, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
+  const api = { SENTENCES, MODULES: CONTENT.MODULES, chunk, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CoachCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
@@ -790,7 +806,9 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
   const stateOf = id => data.states[id] || C.newState();
   const allSentences = () => C.SENTENCES.concat(data.custom);
   const byId = id => allSentences().find(s => s.id === id);
-  const plan = day => C.planSession(data.states, day, { extra: data.custom });
+  // 운전 중에는 이어 말하기를 3문장까지만 (긴 이야기는 나눠서). 일반 화면에서는 6문장까지.
+  const DRIVE_STORY = 3;
+  const plan = day => C.planSession(data.states, day, { extra: data.custom, maxStory: driveOn ? DRIVE_STORY : 0 });
   const askMode = s => (s.cue ? 'cue' : 'recall');
   const kindLabel = s => (s.type === 'core' ? `핵심 ${s.order}` : s.type === 'mine' ? '내 문장' : s.type === 'conv' ? s.moduleTitleKo : '확장');
 
@@ -1146,7 +1164,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
 
   async function runSession(mode, lang) {
     const day = C.today();
-    const plan = C.planSession(data.states, day, { extra: data.custom });
+    const plan = C.planSession(data.states, day, { extra: data.custom, maxStory: driveOn ? DRIVE_STORY : 0 });
     const sess = { start: new Date().toISOString(), day, mode: driveOn ? 'drive' : 'normal', learned: null, results: [], story: null, end: null };
     ctl.running = true; ctl.stop = false; ctl.paused = false; ctl.reason = null;
     enableControls(true); setStatus('speaking');
@@ -1196,7 +1214,11 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
 
       // 3. 대화 연습 (회화 샘플) or 연결 말하기 (출근 이야기)
       if (plan.dialog.length >= 2) { await checkpoint(); sess.story = await dialog(plan.dialog); }
-      else if (plan.story.length >= 2) { await checkpoint(); sess.story = await story(plan.story); }
+      else if (plan.story.length >= 2) {
+        await checkpoint();
+        const first = plan.story[0];
+        sess.story = await story(plan.story, first.order === 1 ? {} : { start: `Tell me the rest of your morning. It starts with: ${firstWords(first.en, 3)}...`, koLine: '출근 이야기 뒷부분 이어서 말하기' });
+      }
 
       // 4. 마무리 재확인
       for (const s of todays.slice(0, 2)) {
@@ -1370,8 +1392,18 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
       if (res.passed) passed.push(s);
     }
     if (list.length >= 2) {
-      await checkpoint();
-      sess.story = await story(list, { start: 'Now tell me your whole story, from the beginning.', koLine: '내 이야기를 처음부터 이어서 말하기' });
+      // 운전 중에는 3문장이 넘는 이야기를 나눠서 이어 말하기
+      const parts = driveOn ? C.chunk(list, DRIVE_STORY) : [list];
+      const results = [];
+      for (let i = 0; i < parts.length; i++) {
+        await checkpoint();
+        const start = parts.length === 1 ? 'Now tell me your whole story, from the beginning.'
+          : i === 0 ? 'Now tell me the first part of your story.' : `Now the next part. It starts with: ${firstWords(parts[i][0].en, 3)}...`;
+        const r = await story(parts[i], { start, koLine: parts.length === 1 ? '내 이야기를 처음부터 이어서 말하기' : `내 이야기 ${i + 1}/${parts.length}부분 이어서 말하기` });
+        if (!r) break; // skipped: don't ask for the next part either
+        results.push(r);
+      }
+      sess.story = results.length ? { n: results.reduce((a, r) => a + r.n, 0), found: results.reduce((a, r) => a + r.found, 0) } : null;
     }
     for (const s of passed.slice(0, 2)) {
       await checkpoint();

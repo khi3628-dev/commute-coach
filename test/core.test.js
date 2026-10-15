@@ -239,3 +239,21 @@ test('회화 샘플은 출근 12문장 다음에 순서대로, 대화 연습은 
   p = C.planSession({ ...m1, 'd1-1': R, 'd1-2': R, 'd2-1': R }, '2026-10-12');
   assert.deepEqual(p.dialog, [], 'latest topic has only one sentence ready');
 });
+
+test('운전 중 연결 말하기는 3문장까지: 6문장은 날마다 앞·뒤 3문장씩', () => {
+  const R = { ...C.newState(), level: 'review', step: 0, next: '2999-01-01' };
+  const all = Object.fromEntries(['c1', 'c2', 'c3', 'c4', 'c5', 'c6'].map(id => [id, R]));
+  const a = C.planSession(all, '2026-10-15', { maxStory: 3 }).story.map(s => s.id);
+  const b = C.planSession(all, '2026-10-16', { maxStory: 3 }).story.map(s => s.id);
+  assert.equal(a.length, 3);
+  assert.deepEqual([...a, ...b].sort(), ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'], '이틀이면 앞·뒤를 모두 연습');
+  assert.equal(C.planSession(all, '2026-10-15').story.length, 6, '일반 화면은 그대로 6문장');
+  const three = { c1: R, c2: R, c3: R };
+  assert.equal(C.planSession(three, '2026-10-15', { maxStory: 3 }).story.length, 3);
+});
+
+test('긴 이야기 나누기: 5 → 3+2, 4 → 2+2', () => {
+  assert.deepEqual(C.chunk([1, 2, 3, 4, 5], 3), [[1, 2, 3], [4, 5]]);
+  assert.deepEqual(C.chunk([1, 2, 3, 4], 3), [[1, 2], [3, 4]]);
+  assert.deepEqual(C.chunk([1, 2], 3), [[1, 2]]);
+});
