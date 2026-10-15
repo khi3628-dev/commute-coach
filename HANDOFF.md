@@ -85,7 +85,7 @@ node test/e2e.mjs                 # 브라우저 시뮬레이션 (playwright 필
 git push origin main              # 1~2분 뒤 GitHub Pages에 반영
 ```
 
-- e2e는 전역 설치된 playwright를 쓰도록 `test/e2e.mjs` 첫 줄에 경로가 박혀 있습니다(`/opt/node22/lib/node_modules/playwright/index.mjs`). 다른 환경에서는 이 경로를 바꾸세요.
+- e2e는 전역 설치된 playwright를 쓰도록 `test/e2e.mjs` 맨 위 import 줄에 경로가 박혀 있습니다(`/opt/node22/lib/node_modules/playwright/index.mjs`). 다른 환경에서는 이 경로를 바꾸세요.
 - 커밋 작성자는 `khi3628-dev`로 해 왔습니다.
 
 ## 6. 지켜 온 결정 (바꾸기 전에 사용자 확인)
