@@ -1,0 +1,507 @@
+<title>Commute Talk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@500;700;800&family=IBM+Plex+Sans+KR:wght@400;500;600&family=Overpass+Mono:wght@500&display=swap">
+<style>
+/* Commute Talk: a second version of the coach. Open conversation in a scene (like Loora/TalkPal/Speak roleplay),
+   one natural recast per turn that the learner repeats (judged by rules), and the recasts join the main app's reviews. */
+:root {
+  --paper: #f3f5f8; --surface: #ffffff; --ink: #141a22; --muted: #5b6673; --line: #d6dce4;
+  --sign: #1d4ed8; --sign-deep: #1e3a8a; --sign-ink: #ffffff;
+  --good: #1d7a4b; --warn: #a86a12; --bad: #b42318; --ins-bg: #dff3e7; --del-bg: #fbe3e0;
+  --f-display: 'Overpass', 'Helvetica Neue', Arial, sans-serif;
+  --f-body: 'IBM Plex Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+  --f-mono: 'Overpass Mono', ui-monospace, Menlo, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --paper: #0d1117; --surface: #161c25; --ink: #e6ebf2; --muted: #98a4b3; --line: #273140;
+  --sign: #2563eb; --sign-deep: #1e40af; --sign-ink: #ffffff;
+  --good: #4cc38a; --warn: #e1a53e; --bad: #f2695c; --ins-bg: #173a29; --del-bg: #45201c; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --paper: #0d1117; --surface: #161c25; --ink: #e6ebf2; --muted: #98a4b3; --line: #273140;
+  --sign: #2563eb; --sign-deep: #1e40af; --sign-ink: #ffffff;
+  --good: #4cc38a; --warn: #e1a53e; --bad: #f2695c; --ins-bg: #173a29; --del-bg: #45201c; color-scheme: dark; }
+
+html, body { height: 100%; }
+body { background: var(--paper); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.55; word-break: keep-all; }
+.app { max-width: 720px; margin: 0 auto; padding-inline: 16px; padding-block: 12px 40px; display: grid; gap: 16px; }
+button { font: inherit; cursor: pointer; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--sign); outline-offset: 2px; }
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.shield { background: var(--sign); color: var(--sign-ink); font-family: var(--f-display); font-weight: 800; font-size: 13px; letter-spacing: .06em; padding: 4px 8px; border-radius: 6px; border: 2px solid var(--sign-ink); box-shadow: 0 0 0 1.5px var(--sign); }
+.brand h1 { font-family: var(--f-display); font-weight: 800; font-size: 20px; margin: 0; }
+.top a { color: var(--muted); font-size: 14px; }
+.notice { font-size: 13px; color: var(--muted); border: 1px dashed var(--line); border-radius: var(--r); padding: 8px 12px; display: grid; gap: 2px; }
+.notice b { color: var(--ink); font-weight: 600; }
+.strip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-family: var(--f-display); }
+.phase { font-weight: 700; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.chip { font-family: var(--f-display); font-weight: 700; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; padding: 3px 10px; border-radius: 999px; border: 1.5px solid var(--line); color: var(--muted); }
+.chip[data-s="speaking"] { border-color: var(--sign); color: var(--sign); }
+.chip[data-s="listening"] { border-color: var(--good); color: var(--good); }
+.chip[data-s="listening"]::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-right: 6px; vertical-align: 1px; animation: pulse 1.2s ease-in-out infinite; }
+.chip[data-s="paused"], .chip[data-s="thinking"] { border-color: var(--warn); color: var(--warn); }
+@keyframes pulse { 50% { opacity: .25; } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: grid; gap: 10px; min-width: 0; }
+.card h2 { font-family: var(--f-display); font-weight: 800; font-size: 15px; letter-spacing: .06em; text-transform: uppercase; margin: 0; color: var(--muted); }
+.signcard { background: var(--sign); color: var(--sign-ink); border: 0; box-shadow: inset 0 0 0 3px var(--sign), inset 0 0 0 5px var(--sign-ink); border-radius: 14px; padding: 22px 22px 20px; }
+.signcard img { display: block; width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 9px; margin-bottom: 4px; background: var(--sign-deep); }
+.signcard .tag { font-family: var(--f-mono); font-size: 12px; opacity: .8; }
+.signcard .en { font-family: var(--f-display); font-weight: 700; font-size: clamp(20px, 5vw, 28px); line-height: 1.25; text-wrap: balance; }
+.signcard .ko { font-size: 15px; opacity: .9; }
+.said { font-size: 16px; }
+.lbl { font-family: var(--f-display); font-weight: 700; font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 2px; }
+.said ins { background: var(--ins-bg); color: var(--good); text-decoration: none; font-weight: 600; padding: 0 3px; border-radius: 4px; }
+.said del { background: var(--del-bg); color: var(--bad); padding: 0 3px; border-radius: 4px; }
+.scenes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.scene { border: 1.5px solid var(--line); background: var(--surface); color: var(--ink); border-radius: var(--r); padding: 12px; text-align: left; display: grid; gap: 2px; }
+.scene b { font-family: var(--f-display); font-weight: 800; }
+.scene span { color: var(--muted); font-size: 13px; }
+.scene:disabled { opacity: .45; cursor: default; }
+.settings { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 14px; color: var(--muted); }
+.settings select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.log { display: grid; gap: 6px; font-size: 15px; }
+.log .t { color: var(--ink); } .log .t::before { content: "선생님 · "; color: var(--muted); font-size: 12px; }
+.log .l { color: var(--sign); } .log .l::before { content: "나 · "; color: var(--muted); font-size: 12px; }
+.log .b { color: var(--good); } .log .b::before { content: "더 자연스럽게 · "; color: var(--muted); font-size: 12px; }
+.empty { color: var(--muted); font-size: 14px; }
+.btn { border: 1.5px solid var(--line); background: var(--surface); color: var(--ink); padding: 9px 14px; border-radius: var(--r); font-weight: 600; }
+.btn.primary { background: var(--sign); border-color: var(--sign); color: var(--sign-ink); }
+.btn:disabled { opacity: .45; cursor: default; }
+.foot { font-size: 13px; color: var(--muted); } .foot a { color: var(--muted); }
+
+/* Drive mode: full-screen sign, no sentence text. */
+.drive { position: fixed; inset: 0; background: var(--sign); color: var(--sign-ink); display: grid; grid-template-rows: auto 1fr auto; padding: calc(env(safe-area-inset-top, 0px) + 20px) 20px calc(env(safe-area-inset-bottom, 0px) + 24px); z-index: 10; }
+.drive .frame { position: absolute; inset: calc(env(safe-area-inset-top, 0px) + 8px) 8px calc(env(safe-area-inset-bottom, 0px) + 8px); border: 4px solid var(--sign-ink); border-radius: 22px; pointer-events: none; }
+.drive .dtop { display: flex; justify-content: space-between; font-family: var(--f-display); font-weight: 800; letter-spacing: .12em; font-size: 14px; padding: 8px 10px 0; }
+.drive .dmid { display: grid; place-items: center; text-align: center; gap: 18px; }
+.drive .dstate { font-family: var(--f-display); font-weight: 800; font-size: clamp(40px, 13vw, 76px); letter-spacing: .04em; line-height: 1; }
+.drive .dphase { font-family: var(--f-display); font-weight: 700; font-size: 18px; letter-spacing: .14em; opacity: .9; }
+.drive .dbot { display: flex; justify-content: flex-end; padding: 0 10px 6px; }
+.drive .dbot button { background: transparent; color: var(--sign-ink); border: 2px solid var(--sign-ink); border-radius: 10px; padding: 10px 16px; font-family: var(--f-display); font-weight: 700; letter-spacing: .06em; }
+@media (prefers-reduced-motion: reduce) { .chip[data-s="listening"]::before { animation: none; } }
+</style>
+
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand"><span class="shield">TALK</span><h1>Commute Talk</h1></div>
+    <a href="./">← 수업 (Commute Coach)</a>
+  </header>
+  <div class="notice" id="env"></div>
+
+  <div class="strip"><span class="phase" id="phase">오늘의 대화</span><span class="chip" id="state" data-s="idle" role="status">Ready</span></div>
+
+  <div class="signcard" id="sign">
+    <img id="s-img" alt="" decoding="async" hidden>
+    <div class="tag" id="s-tag">COMMUTE TALK · 장면을 고르면 대화가 시작됩니다</div>
+    <div class="en" id="teacher" aria-live="polite">선생님이 묻고, 내가 답하고, 선생님이 더 자연스러운 한 문장을 돌려주면 따라 말합니다.</div>
+    <div class="ko" id="teacher-ko"></div>
+  </div>
+
+  <div class="card">
+    <div class="said"><span class="lbl">내가 말한 문장</span><span id="said-text" class="empty">아직 없음</span></div>
+    <div class="log" id="log" hidden></div>
+  </div>
+
+  <div class="card" id="pick">
+    <h2>장면 고르기 · 한 번만 누르면 그다음은 모두 말로</h2>
+    <div class="scenes" id="scenes"></div>
+    <div class="settings">
+      <label><input type="checkbox" id="drive-on"> 운전 모드 (큰 글자, 문장 없음, 5턴)</label>
+      <label>말하기 속도
+        <select id="speed"><option value="0">느림</option><option value="1">보통</option><option value="2">자연</option></select>
+      </label>
+    </div>
+    <p class="empty">한국어로 답해도 됩니다. 그러면 영어로 어떻게 말하는지 알려 주고 따라 말하게 합니다. 명령: again 다시 · meaning 뜻 · skip 넘어가 · pause 잠깐 · resume 계속 · stop 그만. 대화가 끝나면 돌려받은 문장이 Commute Coach의 복습에 들어갑니다.</p>
+  </div>
+
+  <div class="card" id="summary" hidden>
+    <h2>이번 대화에서 얻은 문장</h2>
+    <div id="summary-list" class="log"></div>
+  </div>
+  <footer class="foot"><a href="privacy.html">개인정보·데이터 안내</a> · <a href="https://github.com/khi3628-dev/commute-coach">소스 코드</a></footer>
+</div>
+
+<div class="drive" id="drive" hidden>
+  <div class="frame"></div>
+  <div class="dtop"><span>COMMUTE TALK</span><span id="d-step"></span></div>
+  <div class="dmid">
+    <div class="dphase" id="d-phase">READY</div>
+    <div class="dstate" id="d-state" role="status">HANDS-FREE</div>
+  </div>
+  <div class="dbot" id="d-bot"><button id="d-exit" type="button">일반 화면</button></div>
+</div>
+
+<script>
+/*@@CORE@@*/
+</script>
+<script>
+(function () {
+  'use strict';
+  const C = window.CoachCore;
+  const $ = id => document.getElementById(id);
+
+  // ---------- Storage: the same record as Commute Coach, so recasts join its reviews ----------
+  const KEY = 'commute-coach.v1';
+  function blank() { return { states: {}, attempts: [], sessions: [], learned: {}, errors: {}, custom: [], stories: [], focusSince: {}, settings: { speed: 1, voice: '', geminiModel: '' } }; }
+  let data = blank();
+  try { const raw = localStorage.getItem(KEY); if (raw) data = { ...blank(), ...JSON.parse(raw) }; } catch (e) { /* storage unavailable */ }
+  data.settings = { ...blank().settings, ...data.settings };
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { /* ignore */ } }
+  const allSentences = () => C.SENTENCES.concat(data.custom);
+  const KEY_STORE = 'commute-coach.apikey';
+  function apiKey() { try { return localStorage.getItem(KEY_STORE) || ''; } catch (e) { return ''; } }
+  const provider = () => C.providerOf(apiKey());
+  const geminiModel = () => (data.settings.geminiModel || '').trim() || C.GEMINI_DEFAULT_MODEL;
+
+  // ---------- Environment ----------
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const synth = window.speechSynthesis || null;
+  let srBlocked = !SR || !!(window.claude && window.claude.use);
+  const voiceOK = () => !srBlocked;
+  function renderEnv() {
+    const env = $('env'); env.textContent = '';
+    const line = (b, t) => { const d = document.createElement('div'); const s = document.createElement('b'); s.textContent = b; d.append(s, ' ' + t); env.append(d); };
+    if (!voiceOK()) line('이 화면에서는 음성 인식을 쓸 수 없어 대화를 시작할 수 없습니다.', 'iPhone Safari로 HTTPS 주소를 열어 주세요.');
+    else if (!apiKey()) line('AI 미연결.', '대화 상대는 AI(Claude 또는 Gemini)입니다. Commute Coach 화면의 "AI 연결"에 키를 넣으면 여기서도 쓰입니다.');
+    else line('음성 전용 대화.', '장면을 고른 뒤에는 모두 말로 합니다. 출발 전에 시작하고, 주행 중에는 화면을 보거나 만지지 마세요. 두 번 조용하면 저절로 멈춥니다.');
+    const ok = voiceOK() && !!apiKey();
+    if (!ctl.running) document.querySelectorAll('.scene').forEach(b => { b.disabled = !ok; });
+  }
+
+  // ---------- Speech out ----------
+  const RATES = [0.72, 0.86, 1.0];
+  let voices = [];
+  function loadVoices() { if (synth) voices = synth.getVoices() || []; }
+  loadVoices();
+  if (synth && 'onvoiceschanged' in synth) synth.onvoiceschanged = loadVoices;
+  function quality(v) {
+    let q = 0;
+    if (/premium|프리미엄/i.test(v.name)) q += 30;
+    if (/enhanced|향상/i.test(v.name)) q += 20;
+    if (/Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Fred|Junior|Ralph|Kathy|Grandma|Grandpa|Rocko|Shelley|Flo|Eddy|Reed|Sandy/i.test(v.name)) q -= 50;
+    return q;
+  }
+  function pickVoice(lang) {
+    const list = voices.filter(v => (v.lang || '').replace('_', '-') === lang).sort((a, b) => quality(b) - quality(a));
+    if (lang === 'en-US' && data.settings.voice) { const v = list.find(x => x.voiceURI === data.settings.voice); if (v) return v; }
+    return list[0] || null;
+  }
+  function say(text, opt) {
+    const o = { lang: 'en-US', slow: false, ...opt };
+    setStatus('speaking');
+    if (o.lang === 'en-US') { $('teacher').textContent = text; $('teacher-ko').textContent = ''; }
+    return new Promise(res => {
+      if (!synth || ctl.stop) return setTimeout(res, ctl.stop ? 0 : 250);
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = o.lang;
+      const v = pickVoice(o.lang); if (v) u.voice = v;
+      u.rate = o.lang === 'en-US' ? RATES[data.settings.speed] * (o.slow ? 0.92 : 1) : 1;
+      let done = false;
+      const fin = () => { if (!done) { done = true; clearTimeout(guard); res(); } };
+      const guard = setTimeout(fin, 2500 + text.length * 110);
+      u.onend = fin; u.onerror = fin;
+      synth.speak(u);
+    });
+  }
+  const sayKo = t => { $('teacher-ko').textContent = t; return say(t, { lang: 'ko-KR' }); };
+
+  // ---------- Speech in (same one-shot segments as Commute Coach) ----------
+  function hear(opt) {
+    const o = { timeout: 9000, long: true, lang: 'en-US', ...opt };
+    return new Promise(resolve => {
+      let done = false, rec = null, timer = null, silence = null, retried = false;
+      let before = '', seg = '', text = '';
+      const t0 = performance.now(); let spokeAt = null;
+      setStatus('listening');
+      function finish(v) {
+        if (done) return; done = true;
+        clearTimeout(timer); clearTimeout(silence);
+        if (rec) { try { rec.onend = null; rec.abort(); } catch (e) { /* ignore */ } }
+        resolve(v);
+      }
+      const longDone = () => finish({ text, latency: spokeAt ? Math.round(spokeAt - t0) : null, via: 'voice' });
+      const micLost = () => { srBlocked = true; ctl.stop = true; ctl.reason = 'mic'; renderEnv(); finish(null); };
+      if (!voiceOK()) return micLost();
+      function listen() {
+        if (done) return;
+        const segStart = performance.now();
+        let noSpeech = false;
+        try {
+          rec = new SR();
+          rec.lang = o.lang; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+          rec.onspeechstart = () => { if (!spokeAt) spokeAt = performance.now(); clearTimeout(timer); };
+          rec.onresult = e => {
+            if (!spokeAt) spokeAt = performance.now();
+            clearTimeout(timer);
+            seg = ''; let interim = '';
+            for (let i = 0; i < e.results.length; i++) { if (e.results[i].isFinal) seg += e.results[i][0].transcript + ' '; else interim += e.results[i][0].transcript; }
+            text = `${before} ${seg} ${interim}`.replace(/\s+/g, ' ').trim();
+            $('said-text').textContent = text; $('said-text').classList.remove('empty');
+            clearTimeout(silence);
+            silence = setTimeout(longDone, 2600);
+          };
+          rec.onerror = e => {
+            if (e.error === 'not-allowed' || e.error === 'service-not-allowed') return micLost();
+            if (e.error === 'no-speech') noSpeech = true;
+          };
+          rec.onend = () => {
+            if (done) return;
+            if (text) { before = text; seg = ''; return setTimeout(listen, 150); }
+            if (!spokeAt && !noSpeech && !retried && performance.now() - segStart < 1000) { retried = true; return setTimeout(listen, 300); }
+            finish(null);
+          };
+          rec.start();
+        } catch (e) { if (text) longDone(); else micLost(); }
+      }
+      listen();
+      timer = setTimeout(() => { if (!spokeAt) finish(null); }, o.timeout);
+    });
+  }
+
+  // ---------- Control ----------
+  class Stop extends Error {}
+  const ctl = { running: false, stop: false, paused: false, reason: null };
+  let driveOn = false, wakeLock = null;
+  async function checkpoint() { if (ctl.stop) throw new Stop(); }
+  async function pauseFlow() {
+    ctl.paused = true; setStatus('paused');
+    await say('Paused. Say "resume" when you are ready.');
+    while (ctl.paused && !ctl.stop) {
+      const r = await hear({ timeout: 15000 });
+      const c = r && C.parseCommand(r.text);
+      if (c === 'resume') ctl.paused = false;
+      if (c === 'stop') ctl.stop = true;
+    }
+    ctl.paused = false;
+    await checkpoint();
+    await say("Okay, let's continue.");
+  }
+  function setStatus(s) {
+    const map = { idle: 'Ready', speaking: 'Speaking', listening: 'Listening', paused: 'Paused', thinking: 'Thinking' };
+    $('state').dataset.s = s; $('state').textContent = map[s] || s;
+    $('d-state').textContent = { idle: 'HANDS-FREE', speaking: 'LISTEN', listening: 'YOUR TURN', paused: 'PAUSED', thinking: 'ONE SEC' }[s] || '';
+  }
+  function setPhase(label, en, i, n) {
+    $('phase').textContent = n ? `${label} ${i}/${n}` : label;
+    $('d-phase').textContent = en; $('d-step').textContent = n ? `${i}/${n}` : '';
+  }
+  async function grabWake() { try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { wakeLock = null; } }
+  function releaseWake() { try { if (wakeLock) wakeLock.release(); } catch (e) { /* ignore */ } wakeLock = null; }
+  $('d-exit').addEventListener('click', () => { driveOn = false; $('drive').hidden = true; });
+
+  const sImg = $('s-img');
+  sImg.addEventListener('load', () => { sImg.hidden = false; });
+  sImg.addEventListener('error', () => { sImg.hidden = true; });
+  function logLine(cls, text) {
+    const log = $('log'); log.hidden = driveOn;
+    const d = document.createElement('div'); d.className = cls; d.textContent = text; log.append(d);
+    while (log.children.length > 8) log.firstChild.remove();
+  }
+  function showSaid(text, j) {
+    const box = $('said-text'); box.textContent = ''; box.classList.remove('empty');
+    if (j && j.ops && j.verdict === 'fix') {
+      j.ops.forEach((op, i) => {
+        if (i) box.append(' ');
+        if (op.type === 'ok') box.append(op.got);
+        else if (op.type === 'miss') { const x = document.createElement('ins'); x.textContent = op.want; box.append(x); }
+        else if (op.type === 'extra') { const x = document.createElement('del'); x.textContent = op.got; box.append(x); }
+        else { const d = document.createElement('del'); d.textContent = op.got; const x = document.createElement('ins'); x.textContent = op.want; box.append(d, ' ', x); }
+      });
+    } else box.append(text);
+  }
+
+  // ---------- AI ----------
+  async function postJSON(url, headers, payload) {
+    const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 30000);
+    let res;
+    try { res = await fetch(url, { method: 'POST', signal: ctrl.signal, headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(payload) }); }
+    catch (e) { const err = new Error('network'); err.code = 'network'; throw err; }
+    finally { clearTimeout(t); }
+    const body = await res.json().catch(() => null);
+    if (!res.ok) { const er = (body && body.error) || {}; const err = new Error(er.message || 'HTTP ' + res.status); err.code = res.status; err.status = er.status || er.type || ''; throw err; }
+    return body;
+  }
+  async function askAI(scene, history, opts) {
+    const known = allSentences().map(s => s.en);
+    if (provider() === 'gemini') {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel())}:generateContent`;
+      return C.parseGeminiTalkResponse(await postJSON(url, { 'x-goog-api-key': apiKey() }, C.geminiTalkRequest(scene, history, known, opts)));
+    }
+    return C.parseTalkResponse(await postJSON('https://api.anthropic.com/v1/messages', {
+      'x-api-key': apiKey(), 'anthropic-version': '2023-06-01', 'anthropic-beta': 'server-side-fallback-2026-07-01', 'anthropic-dangerous-direct-browser-access': 'true',
+    }, C.talkRequest(scene, history, known, opts)));
+  }
+  function failMessage(e) {
+    if (e.code === 401 || e.code === 403 || /API_KEY_INVALID|API key not valid/i.test(e.message + ' ' + e.status)) return 'API 키가 맞지 않아요. Commute Coach 설정에서 다시 확인해 주세요.';
+    if (e.code === 404) return 'Gemini 모델 이름을 찾지 못했어요. 설정의 모델 이름을 확인해 주세요.';
+    if (e.code === 429) return '사용 한도에 걸렸어요. 조금 뒤에 다시 해요.';
+    if (e.code === 'network') return '인터넷 연결이 불안정해요. 나중에 다시 해요.';
+    return '답을 만들지 못했어요. 나중에 다시 해요.';
+  }
+
+  // ---------- The talk ----------
+  const TURNS = { normal: 8, drive: 5 };
+  const PRAISE = ['Nice.', 'Good.', 'That works.', 'Great.'];
+  const SKIP_TEXT = "(the learner skipped this question)";
+  function addMine(g, source, day) {
+    const same = allSentences().find(s => C.norm(s.en).join(' ') === C.norm(g.en).join(' '));
+    if (same) return same;
+    const s = { id: 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), type: 'mine', en: g.en, ko: g.ko, grammar: g.note || '내 문장', variants: [], source, created: day, provenance: 'teacher_suggested' };
+    data.custom.push(s); save();
+    return s;
+  }
+
+  // Listen for the learner's turn; handles commands. Returns {text} | 'skip' | null (silence).
+  async function learnerTurn(repeat, lastKo) {
+    let silent = 0;
+    for (;;) {
+      await checkpoint();
+      const r = await hear();
+      await checkpoint();
+      if (!r || !r.text) {
+        if (++silent === 1) { await say("Take your time. In English, or in Korean if you like."); continue; }
+        return null;
+      }
+      silent = 0;
+      const c = C.parseCommand(r.text);
+      if (!c) return r;
+      if (c === 'stop') throw new Stop();
+      if (c === 'skip') return 'skip';
+      if (c === 'pause') { await pauseFlow(); await repeat(); continue; }
+      if (c === 'again') { await repeat(); continue; }
+      if (c === 'slower') { data.settings.speed = Math.max(0, data.settings.speed - 1); $('speed').value = data.settings.speed; save(); await repeat(); continue; }
+      if (c === 'meaning') { if (lastKo) await sayKo(lastKo); else await say("Sorry, no translation for that one."); await repeat(); continue; }
+    }
+  }
+
+  async function runTalk(scene) {
+    if (ctl.running) return;
+    ctl.running = true; ctl.stop = false; ctl.paused = false; ctl.reason = null;
+    driveOn = $('drive-on').checked && voiceOK();
+    $('drive').hidden = !driveOn; if (driveOn) grabWake();
+    document.querySelectorAll('.scene').forEach(b => { b.disabled = true; });
+    $('speed').disabled = true; $('drive-on').disabled = true;
+    $('summary').hidden = true; $('log').textContent = ''; $('log').hidden = driveOn;
+    $('said-text').textContent = '아직 없음'; $('said-text').classList.add('empty');
+    sImg.hidden = true; sImg.src = window.CoachContent.IMAGES[scene.image] || '';
+    $('s-tag').textContent = `${scene.title.toUpperCase()} · ${scene.titleKo}`;
+    const day = C.today();
+    const sess = { start: new Date().toISOString(), day, mode: driveOn ? 'drive-talk' : 'talk', scene: scene.id, results: [], end: null };
+    const history = [];
+    const gained = [];
+    const max = driveOn ? TURNS.drive : TURNS.normal;
+    try {
+      setPhase('대화', 'TALK', 0, max);
+      await say(`Let's talk about ${scene.title.toLowerCase()}. Answer in English, or in Korean if you get stuck. Say "stop" to finish.`);
+      let line = scene.opener, lineKo = '';
+      let silentTurns = 0;
+      for (let turn = 1; turn <= max; turn++) {
+        await checkpoint();
+        setPhase('대화', 'TALK', turn, max);
+        history.push({ role: 'teacher', text: line });
+        logLine('t', line);
+        await say(line);
+        const r = await learnerTurn(() => say(line), lineKo);
+        if (r === null) {
+          if (++silentTurns >= 2) { await say("I'll stop here. Talk to you next time."); break; }
+          await say("No problem. Let's try another one.");
+          history.push({ role: 'learner', text: SKIP_TEXT });
+        } else {
+          silentTurns = 0;
+          const text = r === 'skip' ? SKIP_TEXT : r.text.trim();
+          history.push({ role: 'learner', text });
+          if (r !== 'skip') {
+            logLine('l', text);
+            data.attempts.push({ t: new Date().toISOString(), day, sid: 'talk', kind: 'talk', text, via: r.via, latency: r.latency, verdict: 'source' });
+            if (data.attempts.length > 800) data.attempts = data.attempts.slice(-800);
+            save();
+          }
+        }
+        setStatus('thinking');
+        let ai;
+        try { ai = await askAI(scene, history, { last: turn === max }); }
+        catch (e) { await sayKo(failMessage(e)); break; }
+        await checkpoint();
+        // One natural recast per turn; whether the learner then says it right is judged by rules.
+        if (ai.better && r && r !== 'skip') {
+          const target = { id: 'talk', en: ai.better, ko: ai.ko, variants: [] };
+          logLine('b', ai.better);
+          await say(C.hasHangul(r.text) ? 'In English, you could say:' : "Here's a natural way to say it:");
+          await say(ai.better, { slow: true });
+          if (ai.ko) $('teacher-ko').textContent = ai.ko;
+          await say('Your turn.');
+          let passed = false;
+          for (let tries = 0; tries < 2 && !passed; tries++) {
+            const rr = await learnerTurn(() => say(ai.better, { slow: true }), ai.ko);
+            if (rr === null || rr === 'skip') break;
+            const j = C.judge(target, rr.text, data.learned);
+            showSaid(rr.text, j);
+            data.attempts.push({ t: new Date().toISOString(), day, sid: 'talk', kind: 'recast', text: rr.text, via: rr.via, latency: rr.latency, verdict: j.verdict, errors: (j.errors || []).map(e => e.kind), judge: 'rules' });
+            save();
+            if (j.verdict === 'pass') { passed = true; await say(PRAISE[gained.length % PRAISE.length]); }
+            else if (j.verdict === 'korean') { await say('Say it with me.'); await say(ai.better, { slow: true }); }
+            else if (tries === 0) { await say(j.far ? 'Listen again.' : `Almost. ${j.hint}`); await say(ai.better, { slow: true }); await say('Say it again.'); }
+            else { await say("That's okay. We'll keep this one for review."); }
+          }
+          gained.push({ en: ai.better, ko: ai.ko, note: ai.note, passed });
+          sess.results.push({ sid: 'talk', passed, en: ai.better });
+        } else if (r && r !== 'skip') {
+          sess.results.push({ sid: 'talk', passed: true, en: null });
+        }
+        line = ai.reply; lineKo = '';
+      }
+      await checkpoint();
+      if (history.length && history[history.length - 1].role !== 'teacher') { logLine('t', line); await say(line); }
+      sess.end = 'done';
+    } catch (e) {
+      sess.end = e instanceof Stop ? 'stopped' : 'error';
+      if (!(e instanceof Stop)) console.error(e);
+      if (synth) synth.cancel();
+      ctl.stop = false;
+      if (ctl.reason === 'mic') sess.end = 'mic';
+      await say({ stopped: "Okay, we'll stop here.", mic: "I can't hear you. Please allow the microphone and start again." }[sess.end] || 'Something went wrong.');
+    } finally {
+      // The recasts join the main app's reviews as my sentences (provenance: teacher_suggested).
+      const saved = gained.slice(0, 3).map(g => {
+        const s = addMine(g, 'talk', day);
+        if (!data.states[s.id] || data.states[s.id].level === 'new') {
+          // Said correctly → review from tomorrow; not yet → learning, due today in the main app
+          const res = { passed: g.passed, firstTry: g.passed, hinted: false };
+          let st = C.updateState(data.states[s.id] || C.newState(), 'learn', res, day);
+          if (g.passed) st = C.updateState(st, 'recheck', res, day);
+          data.states[s.id] = st;
+        }
+        return s;
+      });
+      sess.gained = saved.map(s => s.id);
+      sess.finished = new Date().toISOString();
+      data.sessions.push(sess); if (data.sessions.length > 200) data.sessions = data.sessions.slice(-200);
+      save();
+      if (saved.length && sess.end !== 'mic') await say(`${saved.length === 1 ? 'One sentence' : saved.length + ' sentences'} from today will come back in your reviews.`);
+      renderSummary(gained);
+      ctl.running = false; ctl.paused = false;
+      driveOn = false; $('drive').hidden = true; releaseWake();
+      $('speed').disabled = false; $('drive-on').disabled = false;
+      setStatus('idle'); setPhase('오늘의 대화', 'READY', 0, 0); renderEnv();
+    }
+  }
+  function renderSummary(gained) {
+    const box = $('summary-list'); box.textContent = '';
+    if (!gained.length) { box.append(Object.assign(document.createElement('div'), { className: 'empty', textContent: '이번 대화에서는 고칠 문장이 없었습니다.' })); }
+    gained.forEach(g => { const d = document.createElement('div'); d.className = 'b'; d.textContent = `${g.en}${g.ko ? ' — ' + g.ko : ''}${g.passed ? '' : ' (복습 필요)'}`; box.append(d); });
+    $('summary').hidden = false;
+  }
+
+  // ---------- Setup ----------
+  C.SCENES.forEach(sc => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'scene'; b.dataset.scene = sc.id;
+    const t = document.createElement('b'); t.textContent = sc.titleKo; const s = document.createElement('span'); s.textContent = sc.opener;
+    b.append(t, s); b.addEventListener('click', () => { if (voiceOK() && apiKey()) runTalk(sc); });
+    $('scenes').append(b);
+  });
+  $('speed').value = String(data.settings.speed);
+  $('speed').addEventListener('change', e => { data.settings.speed = Number(e.target.value); save(); });
+  renderEnv(); setStatus('idle');
+})();
+</script>

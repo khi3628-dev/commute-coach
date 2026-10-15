@@ -17,13 +17,15 @@ A hands-free English speaking coach for the morning commute. It follows the plan
 - Drive mode: full-screen sign with no sentence text, screen wake lock, auto-pause after two silences
 - Records: Retention, Fluency (time until you start speaking), Coherence, Transfer. Pronunciation is shown as "not measured".
 
+- Commute Talk (`talk.html`): a second version of the coach. Pick a scene (my day, lunch plans, weekend, morning check-in, travel), then the AI plays a conversation partner by voice. When your line has a clear mistake it offers one natural recast, which you repeat; that repeat is judged by the same rules as the lessons, and the recast joins the main app's reviews as "my sentence" (provenance teacher_suggested). 8 turns, or 5 in drive mode. Needs the same API key.
+
 ## Running it
 - `dist/index.html` on an HTTPS host, opened in iPhone Safari → voice recognition and speech output both work (needs testing on a real device)
 - `dist/artifact.html` → the claude.ai artifact version. The microphone is unavailable there, so lessons cannot start; it only shows records.
 
 ## Development
 ```
-node build.mjs                 # src → dist
+node build.mjs                 # src → index.html, talk.html, dist/
 node --test test/core.test.js  # grading, commands, review intervals, session-plan tests
 node test/e2e.mjs              # Chromium simulation with a fake speech recognizer: 3 days, silence → auto-pause, microphone denied
 ```

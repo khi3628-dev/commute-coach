@@ -316,3 +316,20 @@ test('백업 복원: 기록 모양만 받고 나머지는 거른다', () => {
   assert.throws(() => C.parseBackup('{"states":{},"attempts":[]}'), /not a backup/);
   assert.throws(() => C.parseBackup('{"states":{},"attempts":[],"sessions":[],"stories":{}}'), /not a backup/);
 });
+
+test('대화 연습: AI 답은 reply 필수, 되돌려 주는 문장(better)은 영어 한 문장만', () => {
+  const scene = C.SCENES[0];
+  const req = C.talkRequest(scene, [{ role: 'teacher', text: scene.opener }, { role: 'learner', text: 'i go to gym yesterday' }], ['I usually go to the gym after work.']);
+  assert.equal(req.output_config.format.type, 'json_schema');
+  assert.match(req.messages[0].content, /ONE natural sentence/);
+  assert.match(C.talkPrompt(scene, [], [], { last: true }), /Do not ask a question/);
+  const ok = C.parseTalkResponse({ content: [{ type: 'text', text: JSON.stringify({ reply: 'Nice! How long did you stay?', better: 'I went to the gym yesterday.', ko: '어제 헬스장에 갔어.', note: '과거시제 · went' }) }] });
+  assert.deepEqual(ok, { reply: 'Nice! How long did you stay?', better: 'I went to the gym yesterday.', ko: '어제 헬스장에 갔어.', note: '과거시제 · went' });
+  const fine = C.parseGeminiTalkResponse({ candidates: [{ content: { parts: [{ text: '```json\n{"reply":"Sounds good. What time?","better":"","ko":"x","note":"y"}\n```' }] } }] });
+  assert.deepEqual(fine, { reply: 'Sounds good. What time?', better: '', ko: '', note: '' }, 'better가 없으면 ko·note도 비움');
+  const tooLong = C.parseTalkResponse({ content: [{ type: 'text', text: JSON.stringify({ reply: 'Okay.', better: 'one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen', ko: '', note: '' }) }] });
+  assert.equal(tooLong.better, '', '너무 긴 문장은 버림');
+  assert.throws(() => C.parseTalkResponse({ content: [{ type: 'text', text: '{"reply":"","better":""}' }] }), /no usable reply/);
+  assert.throws(() => C.parseTalkResponse({ content: [{ type: 'text', text: '{"reply":"안녕하세요","better":""}' }] }), /no usable reply/, '선생님 답에 한국어가 섞이면 거부');
+  assert.throws(() => C.parseTalkResponse({ type: 'error', error: { message: 'bad key' } }), /bad key/);
+});

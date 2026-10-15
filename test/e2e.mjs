@@ -45,6 +45,7 @@ await page.addInitScript(() => {
   Object.defineProperty(window, 'webkitSpeechRecognition', { configurable: true, value: FakeSR });
 });
 
+const C_addDays = (day, n) => { const [y, m, dd] = day.split('-').map(Number); const x = new Date(y, m - 1, dd + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
 const answer = t => page.evaluate(x => window.__queue.push(x), t);
 
 const said = () => page.evaluate(() => window.__said.join(' | '));
@@ -385,6 +386,71 @@ assert.equal((await store()).sessions.length, 2);
 assert.equal((await store()).states.c2.step, 3);
 assert.match(await page.textContent('#restore-msg'), /복원했습니다/);
 assert.equal(await page.evaluate(() => localStorage.getItem('commute-coach.apikey')), 'sk-ant-secret', 'restore leaves the key alone');
+
+// ---- Commute Talk: scene → Korean answer → recast judged by rules → sentence joins the main reviews ----
+const talkUrl = pathToFileURL(resolve('talk.html')).href;
+await page.evaluate(() => localStorage.setItem('commute-coach.apikey', 'sk-ant-talk'));
+let talkCalls = [];
+await page.unroute('https://api.anthropic.com/v1/messages');
+await page.route('https://api.anthropic.com/v1/messages', async route => {
+  const body = route.request().postDataJSON();
+  talkCalls.push(body);
+  const prompt = body.messages[0].content;
+  const history = JSON.parse(prompt.match(/Conversation so far: (\[.*\])\n/)[1]);
+  const lastLearner = history[history.length - 1].text;
+  const last = /close the conversation/.test(prompt);
+  const out = /헬스장/.test(lastLearner) ? { reply: 'Nice. How long did you stay?', better: 'I went to the gym after work.', ko: '퇴근하고 헬스장에 갔어.', note: '과거시제 · went' }
+    : /skipped/.test(lastLearner) ? { reply: 'Sure. What about this weekend?', better: '', ko: '', note: '' }
+    : { reply: last ? 'Sounds like a good day. See you tomorrow!' : 'Cool. And then?', better: '', ko: '', note: '' };
+  await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ id: 'msg_t', type: 'message', role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(out) }] }) });
+});
+await page.goto(talkUrl);
+assert.equal(await page.locator('.scene').count(), 5);
+assert.equal(await page.locator('.scene:not([disabled])').count(), 5, 'scenes enabled with mic and key');
+await page.evaluate(() => { window.__said = []; });
+await page.check('#drive-on');
+await page.click('.scene[data-scene="day"]');
+await page.waitForFunction(() => window.__said.includes("Hey! How's your day going so far?"));
+assert.equal(await page.locator('#view-lesson input:not([disabled]), textarea:not([disabled]), .scene:not([disabled])').count(), 0, 'nothing to tap during the talk');
+assert.equal(await page.isHidden('#drive'), false, 'drive sign shown');
+await answer('퇴근하고 헬스장 갔어');
+await page.waitForFunction(() => window.__said.includes('Your turn.'));
+assert.ok((await said()).includes('In English, you could say: | I went to the gym after work.'), 'Korean answer gets the English version');
+await answer('I go to the gym after work');
+await page.waitForFunction(() => window.__said.includes('Say it again.'));
+assert.match(await said(), /Almost\. .*went/, 'the repeat is judged by rules: past tense');
+await answer('I went to the gym after work.');
+await page.waitForFunction(() => window.__said.includes('Nice. How long did you stay?'));
+assert.match(await said(), /Nice\.( \|)? Nice\. How long/);
+await answer('skip');
+await page.waitForFunction(() => window.__said.includes('Sure. What about this weekend?'));
+await answer('I will stay home');
+await page.waitForFunction(() => window.__said.includes('Cool. And then?'));
+await answer('stop');
+await page.waitForFunction(() => window.__said.some(x => /will come back in your reviews/.test(x)));
+assert.ok(talkCalls.every(c => c.output_config.format.type === 'json_schema'));
+assert.equal(talkCalls.length, 3);
+assert.ok(/the learner skipped/.test(talkCalls[1].messages[0].content), 'skip is told to the AI');
+d = await store();
+let talkSess = d.sessions[d.sessions.length - 1];
+assert.equal(talkSess.mode, 'drive-talk'); assert.equal(talkSess.end, 'stopped'); assert.equal(talkSess.gained.length, 1);
+let mine = d.custom.find(s => s.en === 'I went to the gym after work.');
+assert.ok(mine && mine.provenance === 'teacher_suggested' && mine.source === 'talk' && mine.grammar === '과거시제 · went');
+assert.equal(d.attempts.filter(a => a.kind === 'recast').length, 2);
+assert.equal(d.states[mine.id].level, 'review', 'said correctly → reviewed from tomorrow');
+assert.equal(d.states[mine.id].next, C_addDays(d.states[mine.id].lastPracticed, 1));
+assert.equal(d.attempts.filter(a => a.kind === 'recast')[0].judge, 'rules');
+assert.match(await page.textContent('#summary-list'), /I went to the gym after work\. — 퇴근하고 헬스장에 갔어\./);
+assert.equal(await page.isHidden('#drive'), true, 'drive sign closes after the talk');
+// The main app lists it as my sentence
+await page.goto(url);
+await page.click('#tab-records');
+assert.match(await page.textContent('#view-records'), /내 문장.*I went to the gym after work\./s);
+// Without a key the scenes are disabled
+await page.evaluate(() => localStorage.removeItem('commute-coach.apikey'));
+await page.goto(talkUrl);
+assert.equal(await page.locator('.scene:not([disabled])').count(), 0);
+assert.match(await page.textContent('#env'), /AI 미연결/);
 
 assert.deepEqual(errors, []);
 console.log('e2e ok');

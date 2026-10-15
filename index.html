@@ -5,7 +5,7 @@
 <meta name="referrer" content="no-referrer">
 <meta name="description" content="운전하며 말로만 연습하는 미국 영어 회화 코치. 내 일상 문장을 간격 반복으로 복습하고, 틀린 부분을 짧게 교정합니다.">
 <meta property="og:title" content="Commute Coach">
-<meta property="og:description" content="출퇴근길에 말로만 연습하는 영어 회화 코치">
+<meta property="og:description" content="운전하며 말로만 연습하는 미국 영어 회화 코치. 내 일상 문장을 간격 반복으로 복습하고, 틀린 부분을 짧게 교정합니다.">
 <meta property="og:image" content="https://khi3628-dev.github.io/commute-coach/img/commute.jpg">
 <meta property="og:type" content="website">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -184,6 +184,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
       <button class="btn primary big" id="start" type="button">수업 시작</button>
       <button class="btn big" id="drive-start" type="button">운전 모드로 시작</button>
     </div>
+    <p class="empty">다른 버전도 있습니다: <a href="talk.html">Commute Talk</a> — 장면을 골라 AI와 자유롭게 대화하고, 돌려받은 문장이 이곳 복습에 들어옵니다 (AI 키 필요).</p>
     <div class="card mine">
       <h2>오늘 이야기 레슨</h2>
       <p class="empty">선생님이 오늘 하루에 대해 4가지를 묻습니다. 답을 모아 AI(Claude 또는 Gemini)가 '오늘의 내 이야기'(2~5문장)를 영어로 만들고, 한 문장씩 연습한 뒤 처음부터 이어 말하기까지 합니다. 누르고 나면 모두 말로 진행합니다. 질문 넘기기는 "넘어가", 끝내기는 "그만".</p>
@@ -838,6 +839,92 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     return { title, sentences, feedback: String(out.feedback || '').trim().slice(0, 140) };
   }
 
+  // ---------- Talk (Commute Talk: open conversation, borrowed from Loora/TalkPal-style apps) ----------
+  // The AI plays a conversation partner; it may offer ONE natural recast per turn (teacher_suggested).
+  // Whether the learner then said the recast correctly is judged by the rules in judge(), not by the AI.
+  const SCENES = [
+    { id: 'day', title: 'My day', titleKo: '오늘 하루', opener: "Hey! How's your day going so far?", role: 'a friendly coworker making small talk on the way to the office', image: 'commute' },
+    { id: 'lunch', title: 'Lunch plans', titleKo: '점심 약속', opener: "Hey, are you free for lunch today? What are you in the mood for?", role: 'a coworker planning lunch together', image: 'lunch' },
+    { id: 'weekend', title: 'Weekend', titleKo: '주말 이야기', opener: 'So, any plans for the weekend?', role: 'a friend asking about the weekend', image: 'rest' },
+    { id: 'standup', title: 'Morning check-in', titleKo: '아침 업무 공유', opener: "Morning! What's on your plate today?", role: 'a team lead doing a quick one-on-one check-in', image: 'office' },
+    { id: 'trip', title: 'Travel talk', titleKo: '여행 이야기', opener: 'I heard you went on a trip recently. Where did you go?', role: 'a friend curious about your last trip', image: 'japan' },
+  ];
+
+  const TALK_SCHEMA = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['reply', 'better', 'ko', 'note'],
+    properties: { reply: { type: 'string' }, better: { type: 'string' }, ko: { type: 'string' }, note: { type: 'string' } },
+  };
+
+  // history: [{role:'teacher'|'learner', text}]. The last entry is the learner's newest utterance (speech-to-text).
+  function talkPrompt(scene, history, known, opts) {
+    const o = { last: false, ...opts };
+    return [
+      'You are an American English conversation partner for a Korean adult who practices out loud while commuting by car.',
+      `Role-play: you are ${scene.role}. Keep the conversation natural and friendly.`,
+      'The learner cannot see a screen; everything you write will be spoken aloud, so keep it short and easy to hear.',
+      `Conversation so far: ${JSON.stringify(history)}`,
+      "The learner's newest line is speech-to-text: ignore punctuation and capitalization, expect recognition errors and grammar mistakes.",
+      'Fields:',
+      '- better: if the newest line has a clear grammar or word-choice mistake, rewrite it as ONE natural sentence (at most 12 words) the learner can repeat, keeping their meaning and facts. If the line was fine, or is only a short reaction like "yes", leave it empty. If the line is in Korean, put its natural English version here.',
+      '- ko: natural Korean meaning of better, or empty.',
+      '- note: a short Korean label for the key point in better (e.g. "과거시제 · went"), or empty.',
+      o.last
+        ? '- reply: 1 or 2 short sentences that react to what they said and close the conversation warmly. Do not ask a question.'
+        : '- reply: 1 or 2 short sentences that react to what they said, then ONE easy follow-up question. Everyday words, contractions are fine.',
+      '- Do not correct anything inside reply; do not explain grammar; do not mention that you are an AI.',
+      `- Phrases the learner already knows, reuse them when natural: ${JSON.stringify(known.slice(0, 15))}`,
+    ].join('\n');
+  }
+
+  function talkRequest(scene, history, known, opts, model) {
+    return {
+      model: model || 'claude-opus-5-5',
+      max_tokens: 1500,
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: TALK_SCHEMA } },
+      fallbacks: 'default',
+      messages: [{ role: 'user', content: talkPrompt(scene, history, known, opts) }],
+    };
+  }
+  function geminiTalkRequest(scene, history, known, opts) {
+    return {
+      contents: [{ role: 'user', parts: [{ text: talkPrompt(scene, history, known, opts) }] }],
+      generationConfig: { responseMimeType: 'application/json', responseJsonSchema: TALK_SCHEMA, maxOutputTokens: 1500 },
+    };
+  }
+  function parseTalkJson(text) {
+    const out = JSON.parse(String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
+    const reply = String(out.reply || '').trim().slice(0, 300);
+    if (!reply || hasHangul(reply)) throw new Error('no usable reply');
+    let better = String(out.better || '').trim();
+    if (hasHangul(better) || better.split(/\s+/).length > 16) better = '';
+    return { reply, better, ko: better ? String(out.ko || '').trim().slice(0, 120) : '', note: better ? String(out.note || '').trim().slice(0, 40) : '' };
+  }
+  const parseTalkResponse = resp => parseTalkJson(textOfClaude(resp));
+  const parseGeminiTalkResponse = resp => parseTalkJson(textOfGemini(resp));
+
+  function textOfClaude(resp) {
+    if (!resp || resp.type === 'error') throw new Error((resp && resp.error && resp.error.message) || 'empty response');
+    if (resp.stop_reason === 'refusal') throw new Error('refused');
+    if (resp.stop_reason === 'max_tokens') throw new Error('cut off');
+    const block = (resp.content || []).find(b => b.type === 'text');
+    if (!block) throw new Error('no text');
+    return block.text;
+  }
+  function textOfGemini(resp) {
+    if (!resp) throw new Error('empty response');
+    if (resp.error) throw new Error(resp.error.message || 'error');
+    if (resp.promptFeedback && resp.promptFeedback.blockReason) throw new Error('refused');
+    const cand = (resp.candidates || [])[0];
+    if (!cand) throw new Error('no text');
+    if (cand.finishReason === 'SAFETY' || cand.finishReason === 'PROHIBITED_CONTENT') throw new Error('refused');
+    if (cand.finishReason === 'MAX_TOKENS') throw new Error('cut off');
+    const text = ((cand.content && cand.content.parts) || []).map(x => x.text || '').join('');
+    if (!text) throw new Error('no text');
+    return text;
+  }
+
   // ---------- Streak / backup ----------
   // Consecutive days with at least one session, counting back from today (or yesterday if today has none yet).
   function streak(days, day) {
@@ -861,7 +948,7 @@ td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-s
     return out;
   }
 
-  const api = { SENTENCES, MODULES: CONTENT.MODULES, streak, parseBackup, chunk, pickFocus, grade, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
+  const api = { SENTENCES, MODULES: CONTENT.MODULES, SCENES, talkPrompt, talkRequest, geminiTalkRequest, parseTalkResponse, parseGeminiTalkResponse, streak, parseBackup, chunk, pickFocus, grade, interviewQuestions, storyPrompt, storyRequest, parseStoryResponse, providerOf, geminiRequest, parseGeminiResponse, GEMINI_DEFAULT_MODEL, norm, hasHangul, align, judge, storyMatch, parseCommand, today, addDays, INTERVALS, newState, updateState, planSession };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CoachCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

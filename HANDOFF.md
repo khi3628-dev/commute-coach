@@ -50,7 +50,8 @@
 - 기록 탭 데이터: 백업 복사·파일로 저장·붙여 넣기/파일로 복원(`parseBackup`, 두 번 눌러야 덮어씀, 키는 건드리지 않음), 연속 학습일(`streak`)
 - 매일 알림: 설정의 시각으로 매일 반복하는 캘린더 일정(.ics) 내려받기 (웹앱은 푸시 알림 불가)
 - 운전 안전 안내 문구, 홈 화면 앱으로 열었을 때 음성 인식 경고, `privacy.html`(개인정보·데이터 안내), 페이지에 CSP·설명·OG 메타 (`build.mjs`)
-- 출시 점검 보고서: `docs/launch-review.md`
+- 출시 점검 보고서: `docs/launch-review.md` · 유사 서비스에서 가져올 요소와 Commute Talk 설계: `docs/collab-review.md`
+- **Commute Talk** (`talk.html`, 2026-10-16): 두 번째 버전. 장면 5개(오늘 하루·점심 약속·주말·아침 업무 공유·여행) 중 하나를 누르면 그 뒤는 음성만. AI(같은 키)가 대화 상대가 되어 짧게 반응하고 질문 1개. 내 말에 분명한 오류가 있으면 자연스러운 한 문장(`better`)을 돌려주고 따라 말하게 함. 따라 말한 것은 `judge()` 규칙으로 판정(AI 판정 아님). 돌려받은 문장은 최대 3개가 `data.custom`에 `type:'mine', source:'talk', provenance:'teacher_suggested'`로 들어가 Commute Coach 복습에 합류(맞게 말했으면 review·다음 날, 아니면 learning·오늘). 일반 8턴, 운전 모드 5턴. 한국어로 답하면 영어 문장으로 돌려줌. 세션은 `mode:'talk'|'drive-talk'`, `gained`(문장 id)로 저장
 - 그림: Higgsfield GPT Image 2.5 Flare로 만든 10장(아이콘 + 주제 그림 9장), 문장 카드 위에 표시. `img/`에 줄인 사본(JPEG 800px, 아이콘 PNG 512px, 합계 약 1.3MB)으로 보관
 
 ## 4. 구조와 파일
@@ -60,8 +61,9 @@ src/content.js   회화 샘플 102개(MODULES), 그림 주소(IMAGES, imageFor �
 img/             그림 10장 (icon.png, commute/lunch/gym/run/parents/rest/office/reading/japan.jpg)
 src/core.js      순수 로직(DOM 없음): 정답 판정, 명령어, 복습 일정, 세션 계획, 인터뷰 질문, AI 요청/응답 검증
 src/app.html     화면 + 세션 흐름(음성 입출력, 수업, 인터뷰, 기록 탭, 설정)
-build.mjs        src → index.html(Pages가 서비스) + dist/index.html + dist/artifact.html
-test/core.test.js  로직 테스트 28개 (node:test)
+src/talk.html    Commute Talk(대화 버전): 장면 선택 → AI와 음성 대화 → 돌려받은 문장 따라 말하기(규칙 판정) → 같은 저장소의 복습에 추가
+build.mjs        src → index.html, talk.html(Pages가 서비스) + dist/index.html, dist/talk.html, dist/artifact.html
+test/core.test.js  로직 테스트 29개 (node:test)
 test/e2e.mjs       Chromium 시뮬레이션 (가짜 음성 인식·합성, 가짜 AI 서버, 루트 index.html을 엽니다)
 docs/image-prompts.md  이미지 프롬프트와 Higgsfield 작업 ID
 ```
@@ -77,6 +79,7 @@ docs/image-prompts.md  이미지 프롬프트와 Higgsfield 작업 ID
 - 다지기(새 문장 없는 날의 학습 중 문장)는 한국어 뜻 듣고 영어로 말하기. 2번 연속 실패한 문장과 확장 문장은 따라 말하기.
 - `storyMatch(targets, text)`: 이어 말하기에서 순서대로 말한 문장 찾기(80% 이상 일치).
 - `parseCommand(text)`: 발화 전체가 명령일 때만 명령으로 처리.
+- Talk: `SCENES`, `talkPrompt/talkRequest/geminiTalkRequest`, `parseTalkResponse/parseGeminiTalkResponse` → `{reply, better, ko, note}`. reply에 한국어가 섞이거나 비면 거부, better는 16단어 초과면 버림.
 - AI: `storyRequest`/`parseStoryResponse`(Claude), `geminiRequest`/`parseGeminiResponse`(Gemini), `providerOf(key)`.
 
 ### 저장 데이터 (iPhone 브라우저 localStorage)
@@ -89,7 +92,7 @@ docs/image-prompts.md  이미지 프롬프트와 Higgsfield 작업 ID
 ```bash
 git clone https://github.com/khi3628-dev/commute-coach && cd commute-coach
 node build.mjs                    # src → index.html, dist/
-node --test test/core.test.js     # 로직 테스트 (28개 통과)
+node --test test/core.test.js     # 로직 테스트 (29개 통과)
 PLAYWRIGHT=/path/to/node_modules/playwright/index.mjs node test/e2e.mjs   # 브라우저 시뮬레이션 ("e2e ok" 출력)
 git push origin main              # 1~2분 뒤 GitHub Pages에 반영
 ```
