@@ -34,7 +34,7 @@
 
 **오늘 이야기 레슨** (AI 키 필요)
 - 시간대별 질문 4개 인터뷰(한국어 또는 영어로 답) → AI 1회 호출로 '오늘의 내 이야기' 2~5문장 생성 → 한 문장씩 연습 → 처음부터 이어 말하기 → 재확인.
-- AI: Claude(`sk-ant-` 키, 모델 `claude-opus-5-5`) 또는 Gemini(`AIza` 키, 기본 모델 `gemini-flash-latest`, 설정에서 변경 가능). 키 모양으로 자동 선택.
+- AI: Claude(`sk-ant-` 키, 모델 `claude-sonnet-5-5`) 또는 Gemini(`AIza` 키, 기본 모델 `gemini-flash-latest`, 설정에서 변경 가능). 키 모양으로 자동 선택.
 
 **콘텐츠**
 - Module 1 출근 6문장 + 확장 6문장 (원본 학습 이력에서 가져옴)

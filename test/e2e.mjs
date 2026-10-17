@@ -349,7 +349,9 @@ await page.click('#d-exit');
 await page.evaluate(() => {
   const d = JSON.parse(localStorage.getItem('commute-coach.v1'));
   const t = new Date().toISOString();
-  d.attempts.push(...[1, 2, 3].map(() => ({ t, day: '2026-10-15', sid: 'c2', kind: 'review', text: 'It takes about twenty minutes in car', verdict: 'fix', errors: ['preposition'] })));
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  const day = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`; // yesterday, so the streak is 2
+  d.attempts.push(...[1, 2, 3].map(() => ({ t, day, sid: 'c2', kind: 'review', text: 'It takes about twenty minutes in car', verdict: 'fix', errors: ['preposition'] })));
   localStorage.setItem('commute-coach.v1', JSON.stringify(d));
 });
 await page.reload();

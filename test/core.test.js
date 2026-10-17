@@ -148,7 +148,7 @@ test('인터뷰 질문은 시간대별 4개', () => {
 test('이야기 생성 요청: 기본 모델, JSON 스키마, 인터뷰 답 포함', () => {
   const answers = [{ q: 'How was your day?', a: '회의가 길었어' }, { q: 'What are you doing tonight?', a: '헬스장 갈 거야' }];
   const body = C.storyRequest(answers, 'ko', ["I'm heading to work."]);
-  assert.equal(body.model, 'claude-opus-5-5');
+  assert.equal(body.model, 'claude-sonnet-5-5');
   assert.equal(body.output_config.format.type, 'json_schema');
   assert.deepEqual(body.output_config.format.schema.required, ['title', 'feedback', 'sentences']);
   assert.equal(body.fallbacks, 'default');

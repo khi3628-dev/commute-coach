@@ -362,7 +362,7 @@
 
   function storyRequest(answers, lang, known, model) {
     return {
-      model: model || 'claude-opus-5-5',
+      model: model || 'claude-sonnet-5-5',
       max_tokens: 3000,
       output_config: { effort: 'low', format: { type: 'json_schema', schema: STORY_SCHEMA } },
       fallbacks: 'default',
@@ -456,7 +456,7 @@
 
   function talkRequest(scene, history, known, opts, model) {
     return {
-      model: model || 'claude-opus-5-5',
+      model: model || 'claude-sonnet-5-5',
       max_tokens: 1500,
       output_config: { effort: 'low', format: { type: 'json_schema', schema: TALK_SCHEMA } },
       fallbacks: 'default',
